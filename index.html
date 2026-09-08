@@ -2846,13 +2846,42 @@
   canvas.addEventListener('dblclick', e=>{
     if(alignClickTimer){ clearTimeout(alignClickTimer); alignClickTimer=null; }
     if(ui.tool==='polygon' && polyDraft){
+      // a draft that already existed before this gesture always has >=3 points here (1+ pre-existing,
+      // plus the 2 this dblclick's own clicks added) — exactly 2 means both clicks in this dblclick
+      // started the draft from nothing, i.e. a dblclick on empty canvas with no polygon underway
+      if(polyDraft.points.length===2){
+        cancelPolygon();
+        const {x,y} = pos(e);
+        if(hitTest(x,y)<0) setTool('select');
+        return;
+      }
       // the two clicks that make up this dblclick each already added a vertex via onDown — the
       // second one is essentially an accidental duplicate, so drop it before closing the shape
       if(polyDraft.points.length>3) polyDraft.points.pop();
       finishPolygon();
       return;
     }
-    if(ui.tool!=='select') return;
+    if(ui.tool!=='select'){
+      // dblclick on empty canvas while on any other tool → back to select, nothing under the cursor to act on
+      const {x,y} = pos(e);
+      if(ui.tool==='pen' || ui.tool==='marker' || ui.tool==='brush'){
+        // pen/marker/brush already placed a dot for each of this dblclick's two clicks (via onDown/onUp).
+        // A dblclick here means "switch tools", not "draw two dots" — drop them (and the undo entry each
+        // one's onUp already committed) before testing whether anything else was already at this spot.
+        let cut = items.length;
+        while(items.length-cut<2 && cut>0 && items[cut-1].type==='path' && items[cut-1].mode===ui.tool && items[cut-1].points.length===1) cut--;
+        const removed = items.length-cut;
+        if(removed){
+          items.length = cut;
+          undoStack.length = Math.max(0, undoStack.length-removed);
+          save(); updateButtons();
+        }
+        if(hitTest(x,y)<0) setTool('select'); else render();
+        return;
+      }
+      if(hitTest(x,y)<0) setTool('select');
+      return;
+    }
     const {x,y} = pos(e);
     const hit = hitTest(x,y);
     if(hit>=0 && items[hit].type==='text'){
