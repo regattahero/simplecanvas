@@ -1922,15 +1922,8 @@
             if(d<=bestD){ bestD=d; hitHandle=key; }
           }
           if(hitHandle){
-            const c = corners[hitHandle];
-            // The scale anchor must be the item's own (unpadded) opposite corner, not the padded bbox
-            // corner `c.ax,ay` above — the padding (half the stroke width) doesn't scale along with
-            // everything else, so anchoring at the padded corner leaves it sitting at a fixed offset
-            // from a corner that itself just moved, and the visible opposite handle visibly drifts by
-            // pad*(scale-1) — worse at heavier stroke widths. Anchoring at the true corner instead scales
-            // it to itself (a fixed point of the transform), so the constant padding still lines up
-            // exactly with it afterward. (Ctrl/center-anchored resize is unaffected: pad only ever
-            // shifts a corner, never the box's center, so `centerX,centerY` below was already exact.)
+            // Scale the bare geometry; stroke padding stays constant. Track movement from the
+            // actual press so neither padding nor grabbing off-center makes the first move jump.
             const ob = rp.ownBox;
             const ownCorners = {
               nw:{x:ob.x,      y:ob.y,      ax:ob.x+ob.w, ay:ob.y+ob.h},
@@ -1945,9 +1938,9 @@
               rotation:rp.rotation,
               anchorX:oc.ax, anchorY:oc.ay,
               anchorWorldX:Aw.x, anchorWorldY:Aw.y,
-              cornerX:c.x, cornerY:c.y,          // PADDED dragged corner — feeds the Ctrl/center anchor's own origSignedW/H
+              cornerX:oc.x, cornerY:oc.y,
+              startX:lp.x, startY:lp.y,          // pointer-down in the original unrotated frame
               centerX:rp.cx, centerY:rp.cy,      // center anchor — valid as local AND world AND rotation pivot
-              origW: b.w, origH: b.h,
               origSignedW: oc.x-oc.ax, origSignedH: oc.y-oc.ay,
               snapshots: rp.members.map(idx=>({idx, snap:snapshotOf(items[idx])})),
               moved:false
@@ -2102,8 +2095,9 @@
       const awy = ctrlMode ? resizing.centerY : resizing.anchorWorldY;
       const origSignedW = ctrlMode ? resizing.cornerX-resizing.centerX : resizing.origSignedW;
       const origSignedH = ctrlMode ? resizing.cornerY-resizing.centerY : resizing.origSignedH;
-      const rotd = rot ? rotatePoint(x, y, awx, awy, -rot) : {x,y};
-      let dx = rotd.x - awx, dy = rotd.y - awy;
+      const rotd = rot ? rotatePoint(x, y, resizing.centerX, resizing.centerY, -rot) : {x,y};
+      let dx = origSignedW + rotd.x - resizing.startX;
+      let dy = origSignedH + rotd.y - resizing.startY;
       if(e.shiftKey){
         // proportional: project onto the original diagonal (anchor -> original corner)
         const dW = origSignedW, dH = origSignedH;
@@ -2319,7 +2313,7 @@
     snapPt = null; snapCursorPt = null;
     if(textDraftBox){
       const box = {x:textDraftBox.x, y:textDraftBox.y, w:textDraftBox.w, h:textDraftBox.h};
-      const draftStyle = {color:textDraftBox.color, fill:textDraftBox.fill, fillColor:textDraftBox.fillColor, strokeOn:textDraftBox.strokeOn, size:textDraftBox.size, textColor:textDraftBox.textColor};
+      const draftStyle = {color:textDraftBox.color, fill:textDraftBox.fill, fillColor:textDraftBox.fillColor, strokeOn:textDraftBox.strokeOn, size:textDraftBox.size, dash:textDraftBox.dash, textColor:textDraftBox.textColor};
       current = null; historyBefore = null;
       openText(null, box, draftStyle);
       return;
@@ -2474,7 +2468,7 @@
     } else if(val && textBox && textDraft){
       beginHistory();
       items.push({ type:'text', text:val, x:textBox.x, y:textBox.y, w:textBox.w, h:textBox.h,
-                   color:textDraft.color, fill:textDraft.fill, fillColor:textDraft.fillColor, strokeOn:textDraft.strokeOn, size:textDraft.size,
+                   color:textDraft.color, fill:textDraft.fill, fillColor:textDraft.fillColor, strokeOn:textDraft.strokeOn, size:textDraft.size, dash:textDraft.dash,
                    textColor:textDraft.textColor || ui.textColor,
                    fontFamily:ui.fontFamily, fontSize:ui.fontSize, font:fontStr(ui.fontFamily, ui.fontSize) });
       commitHistory();
