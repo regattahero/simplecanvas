@@ -6,4 +6,18 @@ Demo: https://oldwired.github.io/simplecanvas/
 
 Open `index.html` in a browser to draw, add shapes or text, and save or load sketches as JSON.
 
+The shape library is optional. Select canvas objects and choose **Add selection to library…**
+from the menu, or choose **Import library…** to open your own library file. The library button
+appears once a library is available. Click a shape to place it; **Manage** lets you rename,
+delete, or replace a shape with the current canvas selection. Images cannot be included.
+
+**Export library…** downloads the entire active library as `shapes-library.json`. Library
+changes last only for the current visit and are separate from sketch saves and autosave.
+An indicator shows unexported changes; importing another library or leaving the page warns
+before those changes are discarded. Import your exported file to use it on another visit.
+
+When hosted, an optional `shapes-library.json` beside the HTML supplies the initial library.
+It is read only once at startup. Opening the picker never reloads it, and custom file imports
+work whether the page is hosted or opened locally. The HTML works on its own without this file.
+
 Licensed under the MIT License.
