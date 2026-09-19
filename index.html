@@ -697,6 +697,14 @@
   textInput.maxLength = MAX_TEXT;   // the same limit the loader enforces, so nothing typed is cut on reload
   const isNum = v => typeof v === 'number' && Number.isFinite(v);
   const isColor = v => typeof v === 'string' && /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v);   // CSS hex: 3, 4, 6 or 8 digits
+  // A newly-drawn white stroke/text is invisible against the white canvas — unless the shape has its
+  // own non-white fill to show it anyway (a deliberate "white outline/text on a colored fill" look).
+  // `fillOn`/`fillColor` are omitted for stroke-only types (path/line/arrow), which have no fill to
+  // rescue visibility, so a white color there is corrected unconditionally.
+  function legibleColor(color, fillOn, fillColor){
+    const fillVisible = fillOn && fillColor !== '#ffffff';
+    return (color==='#ffffff' && !fillVisible) ? '#000000' : color;
+  }
   function normalizeItem(raw, assetsIn){
     if(!raw || typeof raw !== 'object' || ITEM_TYPES.indexOf(raw.type) < 0) return null;
     const it = { type: raw.type };
@@ -2047,15 +2055,18 @@
 
     beginHistory();
     if(ui.tool==='pen' || ui.tool==='marker' || ui.tool==='brush'){
-      current = { type:'path', mode:ui.tool, color:ui.color, size:ui.size, points:[{x,y}] };
+      current = { type:'path', mode:ui.tool, color:legibleColor(ui.color), size:ui.size, points:[{x,y}] };
     } else if(ui.tool==='line' || ui.tool==='arrow'){
       snapPt = e.altKey ? null : nearestSnap(x,y);          // the start point snaps too
       const sx = snapPt ? snapPt.x : x, sy = snapPt ? snapPt.y : y;
-      current = { type:ui.tool, color:ui.color, size:ui.size, dash:ui.dash, x1:sx,y1:sy,x2:sx,y2:sy };
+      current = { type:ui.tool, color:legibleColor(ui.color), size:ui.size, dash:ui.dash, x1:sx,y1:sy,x2:sx,y2:sy };
     } else if(ui.tool==='rect' || ui.tool==='ellipse' || ui.tool==='text'){
       const st = drawStyle();
-      current = { type:ui.tool, color:st.color, size:st.size, strokeOn:st.strokeOn, fill:st.fill, fillColor:st.fillColor, dash:st.dash, _x0:x,_y0:y, x:x,y:y,w:0,h:0 };
-      if(ui.tool==='text'){ current.text = ''; current.font = fontStr(ui.fontFamily, ui.fontSize); current.textColor = ui.textColor; }   // border/fill come from the toolbar, like a rect
+      current = { type:ui.tool, color:legibleColor(st.color, st.fill, st.fillColor), size:st.size, strokeOn:st.strokeOn, fill:st.fill, fillColor:st.fillColor, dash:st.dash, _x0:x,_y0:y, x:x,y:y,w:0,h:0 };
+      if(ui.tool==='text'){
+        current.text = ''; current.font = fontStr(ui.fontFamily, ui.fontSize);
+        current.textColor = legibleColor(ui.textColor, st.fill, st.fillColor);
+      }   // border/fill come from the toolbar, like a rect
     }
     render();
   }
@@ -2456,9 +2467,9 @@
     const w = colW*cols, h = rowH*rows;
     beginHistory();
     items.push({ type:'table', x:norm(x-w/2), y:norm(y-h/2), w:norm(w), h:norm(h), rows, cols,
-                 color:ui.color, size:ui.size, strokeOn:ui.strokeOn, fill:ui.fill, fillColor:ui.fillColor, dash:ui.dash,
+                 color:legibleColor(ui.color, ui.fill, ui.fillColor), size:ui.size, strokeOn:ui.strokeOn, fill:ui.fill, fillColor:ui.fillColor, dash:ui.dash,
                  fontFamily:ui.fontFamily, fontSize:ui.fontSize, font:fontStr(ui.fontFamily, ui.fontSize),
-                 textColor:ui.textColor, texts:[], aligns:[] });
+                 textColor:legibleColor(ui.textColor, ui.fill, ui.fillColor), texts:[], aligns:[] });
     selection = [items.length-1];
     commitHistory();
     setTool('select');
@@ -2546,7 +2557,7 @@
   function polygonPress(x, y, touch){
     if(!polyDraft){
       beginHistory();
-      polyDraft = { type:'polygon', color:ui.color, size:ui.size, strokeOn:ui.strokeOn, fill:ui.fill, fillColor:ui.fillColor, dash:ui.dash, points:[] };
+      polyDraft = { type:'polygon', color:legibleColor(ui.color, ui.fill, ui.fillColor), size:ui.size, strokeOn:ui.strokeOn, fill:ui.fill, fillColor:ui.fillColor, dash:ui.dash, points:[] };
       current = polyDraft;
     }
     if(touch){
