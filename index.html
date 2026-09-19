@@ -112,7 +112,6 @@
   .shape-picker-heading button{width:auto;font-size:12px}
   .shape-library-status,.shape-library-help{font-size:12px;color:var(--muted);line-height:1.45;white-space:normal}
   .shape-library-status.dirty{color:#92400e}
-  #menuLibraryStatus{padding:3px 9px 7px;max-width:260px}
   #shapeLibBtn{position:relative}
   #shapeLibBtn.dirty::after{content:'';position:absolute;right:3px;top:3px;width:7px;height:7px;background:#d97706;border-radius:50%;border:2px solid #fff}
   .shape-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
@@ -120,6 +119,7 @@
   .shape-grid .shape-thumb{width:100%;height:64px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px;justify-content:center}
   .shape-grid .shape-thumb svg{width:100%;height:100%;display:block}
   .shape-name{display:block;font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .shape-grid:not(.managing) .shape-name{text-align:center}
   .shape-grid.managing{grid-template-columns:1fr}
   .shape-grid.managing .shape-entry{display:grid;grid-template-columns:54px minmax(0,1fr);gap:4px 8px;border-bottom:1px solid var(--line);padding-bottom:8px}
   .shape-grid.managing .shape-thumb{height:54px;grid-row:span 2}
@@ -127,8 +127,9 @@
   .shape-entry-actions{display:flex;flex-wrap:wrap;gap:2px}
   .shape-entry-actions button{width:auto;padding:5px;font-size:12px}
   .shape-library-actions button{justify-content:center;border:1px solid var(--line);font-size:12px}
+  .shape-library-actions{margin:10px 0}
+  #shapePickerManage .shape-library-help:last-child{margin-top:10px}
   .shape-picker button:disabled,.menu button:disabled{opacity:.45;cursor:default}
-  .shape-picker-empty{grid-column:1/-1;font-size:12px;color:var(--muted);padding:6px 0}
   .library-dialog{width:360px;max-width:calc(100vw - 40px);box-sizing:border-box;border:1px solid var(--line);border-radius:14px;padding:20px;color:var(--ink);box-shadow:0 12px 40px #0002}
   .library-dialog::backdrop{background:#0f172a55}
   .library-dialog h2{font-size:17px;margin:0 0 12px}
@@ -297,18 +298,6 @@
         Open sketch… <span class="sc">⌘O</span>
       </button>
       <div class="menu-sep" role="separator"></div>
-      <button data-act="addShape" role="menuitem">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M8 4v6l2-1.5L12 10V4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-        Add selection to library…
-      </button>
-      <button data-act="importShapeLibrary" role="menuitem">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M2.23 3.07C2.23 2.48 3.7 2 5.51 2 7.32 2 8.79 2.48 8.79 3.07L8.79 9.36C8.79 9.95 7.32 10.43 5.51 10.43 3.7 10.43 2.23 9.95 2.23 9.36Z" stroke="currentColor" stroke-width="1.2"/><path d="M8.79 3.07C8.79 3.66 7.32 4.14 5.51 4.14 3.7 4.14 2.23 3.66 2.23 3.07" stroke="currentColor" stroke-width="1.2"/><path d="M2.23 21.01 2.23 16.29 5.16 13 8.09 16.29 8.09 21.01Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M12.73 15.98 15.1 15.98 15.1 13.61 17.77 13.61 17.77 15.98 20.13 15.98 20.13 18.64 17.77 18.64 17.77 21.01 15.1 21.01 15.1 18.64 12.73 18.64Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M12.73 9.9 15.49 2 20.89 2 18.13 9.9Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
-        Import library…
-      </button>
-      <button data-act="exportShapeLibrary" role="menuitem" disabled>Export library…</button>
-      <button data-act="manageShapeLibrary" role="menuitem" disabled>Manage shapes…</button>
-      <div class="shape-library-status" id="menuLibraryStatus">No library loaded</div>
-      <div class="menu-sep" role="separator"></div>
       <button data-act="png" role="menuitem">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Export PNG
@@ -376,7 +365,7 @@
     <button class="btn" data-tool="polygon" title="Polygon — click each corner, then finish by tapping the start point, double-clicking, right-clicking, pressing Enter, or tapping Finish (G)">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 21 9.5 17.8 20H6.2L3 9.5 12 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
     </button>
-    <div class="menu-wrap" id="shapeLibWrap" style="display:none">
+    <div class="menu-wrap" id="shapeLibWrap">
       <button class="btn" data-tool="shape" id="shapeLibBtn" title="Shape library — pick a saved shape, then click to place" aria-haspopup="true" aria-expanded="false" aria-controls="shapePicker">
         <svg viewBox="0 0 24 24" fill="none"><path d="M2.23 3.07C2.23 2.48 3.7 2 5.51 2 7.32 2 8.79 2.48 8.79 3.07L8.79 9.36C8.79 9.95 7.32 10.43 5.51 10.43 3.7 10.43 2.23 9.95 2.23 9.36Z" stroke="currentColor" stroke-width="1.2"/><path d="M8.79 3.07C8.79 3.66 7.32 4.14 5.51 4.14 3.7 4.14 2.23 3.66 2.23 3.07" stroke="currentColor" stroke-width="1.2"/><path d="M2.23 21.01 2.23 16.29 5.16 13 8.09 16.29 8.09 21.01Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M12.73 15.98 15.1 15.98 15.1 13.61 17.77 13.61 17.77 15.98 20.13 15.98 20.13 18.64 17.77 18.64 17.77 21.01 15.1 21.01 15.1 18.64 12.73 18.64Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M12.73 9.9 15.49 2 20.89 2 18.13 9.9Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
       </button>
@@ -384,9 +373,12 @@
         <div class="shape-picker-heading"><strong id="shapePickerLabel">Shape library</strong><button type="button" id="manageShapesBtn" aria-pressed="false">Manage</button></div>
         <div class="shape-library-status" id="shapeLibraryStatus" role="status"></div>
         <div class="shape-grid" id="shapeGrid"></div>
-        <div class="shape-library-help" id="shapeLibraryHelp">Click a shape, then click the canvas to place it.</div>
-        <div class="shape-library-actions"><button type="button" id="importLibraryBtn">Import…</button><button type="button" id="exportLibraryBtn">Export library…</button></div>
-        <div class="shape-library-help">Library changes last for this visit. Export to keep them; import the file next time.</div>
+        <div id="shapePickerManage">
+          <div class="shape-library-help" id="shapeLibraryHelp">Replace uses the selected canvas objects. Library edits do not change placed shapes.</div>
+          <div class="shape-library-actions"><button type="button" id="importLibraryBtn">Import…</button><button type="button" id="exportLibraryBtn">Export library…</button></div>
+          <div class="shape-library-help">Library changes last for this visit. Export to keep them; import the file next time.</div>
+          <div class="shape-library-help">For automatic import place the exported file next to index.html as shapes-library.json (via FTP).</div>
+        </div>
         <input type="file" id="shapeLibraryInput" accept="application/json,.json" style="display:none">
       </div>
     </div>
@@ -1428,20 +1420,6 @@
     }
     return -1;
   }
-  // Marquee selection requires an item's bbox to be FULLY inside the drag rectangle, not just
-  // touching it — with many/overlapping objects, "touches" made it practically impossible to
-  // narrow the selection down to just what you meant to lasso.
-  function rectContains(outer, inner){
-    return inner.x >= outer.x && inner.y >= outer.y && inner.x+inner.w <= outer.x+outer.w && inner.y+inner.h <= outer.y+outer.h;
-  }
-  // For a grouped item, containment is judged against the GROUP'S OWN combined bbox, not the one
-  // member's — otherwise a marquee that only fully encloses one member (while merely brushing the
-  // rest of the group) would drag the whole group in, even though the group itself isn't enclosed.
-  function marqueeContains(i, r){
-    const it = items[i];
-    if(it.group!=null) return rectContains(r, unionBox(itemsInGroup(it.group)));
-    return rectContains(r, worldBBox(it));
-  }
   // Every distinct object/group under (x,y), top to bottom — a grouped item contributes only its
   // first (topmost) matching member, so the click-cycle below advances through actual stacked
   // objects rather than getting stuck re-selecting the same group from two of its own members.
@@ -1477,6 +1455,20 @@
     }
     clickCycle = {x, y, stack, depth};
     return stack[depth];
+  }
+  // Marquee selection requires an item's bbox to be FULLY inside the drag rectangle, not just
+  // touching it — with many/overlapping objects, "touches" made it practically impossible to
+  // narrow the selection down to just what you meant to lasso.
+  function rectContains(outer, inner){
+    return inner.x >= outer.x && inner.y >= outer.y && inner.x+inner.w <= outer.x+outer.w && inner.y+inner.h <= outer.y+outer.h;
+  }
+  // For a grouped item, containment is judged against the GROUP'S OWN combined bbox, not the one
+  // member's — otherwise a marquee that only fully encloses one member (while merely brushing the
+  // rest of the group) would drag the whole group in, even though the group itself isn't enclosed.
+  function marqueeContains(i, r){
+    const it = items[i];
+    if(it.group!=null) return rectContains(r, unionBox(itemsInGroup(it.group)));
+    return rectContains(r, worldBBox(it));
   }
   function marqueeRect(){
     const x = Math.min(marquee.x0, marquee.x), y = Math.min(marquee.y0, marquee.y);
@@ -3369,6 +3361,7 @@
   const shapeLibBtn = document.getElementById('shapeLibBtn');
   const shapePicker = document.getElementById('shapePicker');
   const shapeGrid = document.getElementById('shapeGrid');
+  const shapePickerManage = document.getElementById('shapePickerManage');
   const shapeLibraryInput = document.getElementById('shapeLibraryInput');
   const manageShapesBtn = document.getElementById('manageShapesBtn');
 
@@ -3420,16 +3413,13 @@
     const status = !shapeLibrary ? 'No library loaded' : shapeLibraryDirty
       ? 'Library has unexported changes'
       : count + (count===1 ? ' shape' : ' shapes') + ' in the library';
-    for(const id of ['shapeLibraryStatus', 'menuLibraryStatus']){
+    for(const id of ['shapeLibraryStatus']){
       const el = document.getElementById(id);
       el.textContent = status;
       el.classList.toggle('dirty', shapeLibraryDirty);
     }
-    shapeLibWrap.style.display = shapeLibrary ? '' : 'none';
     shapeLibBtn.classList.toggle('dirty', shapeLibraryDirty);
     shapeLibBtn.title = 'Shape library' + (shapeLibraryDirty ? ' — unexported changes' : ' — pick a shape to place');
-    document.querySelector('[data-act="exportShapeLibrary"]').disabled = !shapeLibrary;
-    document.querySelector('[data-act="manageShapeLibrary"]').disabled = !shapeLibrary;
     document.getElementById('exportLibraryBtn').disabled = !shapeLibrary;
     if(!shapePicker.hidden) renderShapeLibrary();
   }
@@ -3473,6 +3463,7 @@
     if(!shapePicker.hidden && !shapePicker.contains(e.target) && !shapeLibBtn.contains(e.target)) setShapePicker(false);
   });
   manageShapesBtn.addEventListener('click', ()=>{
+    if(!shapeLibrary || !shapeLibrary.shapes.length){ shapeLibraryInput.click(); return; }
     managingShapes = !managingShapes;
     renderShapeLibrary(); fitShapePicker();
   });
@@ -3549,21 +3540,33 @@
     shapeGrid.appendChild(entry);
   }
 
+  function addAddSelectionTile(){
+    const entry = document.createElement('div');
+    entry.className = 'shape-entry';
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'shape-thumb'; b.title = 'Add selection to library…';
+    b.setAttribute('aria-label', 'Add selection to library');
+    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M12 7.1v9.8M7.1 12h9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    b.addEventListener('click', addSelectionToLibrary);
+    const label = document.createElement('span');
+    label.className = 'shape-name'; label.textContent = 'Add selection…';
+    entry.append(b, label);
+    shapeGrid.appendChild(entry);
+  }
+
   function renderShapeLibrary(){
+    const entries = shapeLibrary ? shapeLibrary.shapes : [];
+    if(!entries.length) managingShapes = false;
     shapeGrid.innerHTML = '';
     shapeGrid.classList.toggle('managing', managingShapes);
-    manageShapesBtn.textContent = managingShapes ? 'Done' : 'Manage';
-    manageShapesBtn.setAttribute('aria-pressed', String(managingShapes));
-    document.getElementById('shapeLibraryHelp').textContent = managingShapes
-      ? 'Replace uses the selected canvas objects. Library edits do not change placed shapes.'
-      : 'Click a shape, then click the canvas to place it.';
-    const entries = shapeLibrary ? shapeLibrary.shapes : [];
-    if(!entries.length){
-      const d = document.createElement('div');
-      d.className = 'shape-picker-empty'; d.textContent = 'No shapes yet. Use “Add selection to library…” in the menu, or import a library.';
-      shapeGrid.appendChild(d);
-    }
+    const empty = !entries.length;
+    manageShapesBtn.textContent = empty ? 'Import' : (managingShapes ? 'Done' : 'Manage');
+    if(empty) manageShapesBtn.removeAttribute('aria-pressed');
+    else manageShapesBtn.setAttribute('aria-pressed', String(managingShapes));
+    document.getElementById('shapeLibraryStatus').hidden = !managingShapes;
+    shapePickerManage.hidden = !managingShapes;
     for(const tpl of entries) addShapeButton(tpl);
+    if(!managingShapes) addAddSelectionTile();
   }
 
   function importShapeLibraryFile(file){
@@ -3895,10 +3898,6 @@
   const MENU_ACTIONS = {
     save: exportProject,
     open: ()=>projectInput.click(),
-    addShape: addSelectionToLibrary,
-    importShapeLibrary: ()=>shapeLibraryInput.click(),
-    exportShapeLibrary,
-    manageShapeLibrary: ()=>{ managingShapes=true; activateShapeTool(); },
     png: savePng,
     svg: saveSvg,
     print: ()=>window.print(),
