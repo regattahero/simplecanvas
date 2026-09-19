@@ -1442,6 +1442,42 @@
     if(it.group!=null) return rectContains(r, unionBox(itemsInGroup(it.group)));
     return rectContains(r, worldBBox(it));
   }
+  // Every distinct object/group under (x,y), top to bottom — a grouped item contributes only its
+  // first (topmost) matching member, so the click-cycle below advances through actual stacked
+  // objects rather than getting stuck re-selecting the same group from two of its own members.
+  function hitStack(x,y){
+    const stack = [];
+    const seenGroups = new Set();
+    for(let i=items.length-1;i>=0;i--){
+      const it = items[i];
+      const p = toLocal(it,x,y);
+      if(!inBox(bbox(it),p.x,p.y)) continue;
+      if(it.group!=null){
+        if(seenGroups.has(it.group)) continue;
+        seenGroups.add(it.group);
+      }
+      stack.push(i);
+    }
+    return stack;
+  }
+  const selectionFor = hit => { const g = items[hit].group; return g!=null ? itemsInGroup(g) : [hit]; };
+  const sameSelection = (a,b) => a.length===b.length && a.every((v,i)=>v===b[i]);
+  let clickCycle = null;   // {x,y,stack,depth} — repeated clicks on the same spot walk down the stack
+  // With several objects stacked at one spot, a plain hitTest always hands back the topmost — the
+  // ones underneath are simply unreachable by clicking. Clicking again at (about) the same spot
+  // instead steps one layer deeper each time, wrapping back to the top after the bottom; clicking
+  // anywhere else, or the selection having changed for some other reason since, restarts at the top.
+  function pickWithClickCycle(x,y){
+    const stack = hitStack(x,y);
+    if(!stack.length){ clickCycle = null; return -1; }
+    let depth = 0;
+    if(clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y)<=3 &&
+       sameSelection(selection, selectionFor(clickCycle.stack[clickCycle.depth]))){
+      depth = (clickCycle.depth+1) % stack.length;
+    }
+    clickCycle = {x, y, stack, depth};
+    return stack[depth];
+  }
   function marqueeRect(){
     const x = Math.min(marquee.x0, marquee.x), y = Math.min(marquee.y0, marquee.y);
     return { x, y, w:Math.abs(marquee.x-marquee.x0), h:Math.abs(marquee.y-marquee.y0) };
@@ -2013,7 +2049,7 @@
           }
         }
       }
-      const hit = hitTest(x,y);
+      const hit = pickWithClickCycle(x,y);
       if(hit>=0){
         const hitItem = items[hit];
         const g = hitItem.group;
