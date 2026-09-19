@@ -3356,7 +3356,7 @@
     tablePicker.hidden = !open;
     if(open) fitMenu(tablePicker);
     tableBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open) highlightTablePicker(ui.tableRows, ui.tableCols);
+    if(open){ highlightTablePicker(ui.tableRows, ui.tableCols); setShapePicker(false); }
   }
   function activateTableTool(){ setTool('table'); setTablePicker(true); }
   tableBtn.addEventListener('click', e=>{ e.stopPropagation(); activateTableTool(); });
@@ -3437,7 +3437,11 @@
   function setShapePicker(open){
     shapePicker.hidden = !open;
     shapeLibBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open){ renderShapeLibrary(); fitShapePicker(); }
+    if(open){
+      renderShapeLibrary(); fitShapePicker();
+      setStrokePicker(false); setFillPicker(false); setTextColorPicker(false);
+      setSizePicker(false); setTablePicker(false); setMenu(false);
+    }
   }
   function fitShapePicker(){
     fitMenu(shapePicker);
@@ -3702,21 +3706,21 @@
     if(open) fitMenu(strokePicker);
     if(!open) strokePicker._panel.el.hidden = true;
     strokeBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open){ setFillPicker(false); setTextColorPicker(false); setSizePicker(false); setTablePicker(false); }
+    if(open){ setFillPicker(false); setTextColorPicker(false); setSizePicker(false); setTablePicker(false); setShapePicker(false); }
   }
   function setFillPicker(open){
     fillPicker.hidden = !open;
     if(open) fitMenu(fillPicker);
     if(!open) fillPicker._panel.el.hidden = true;
     fillBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open){ setStrokePicker(false); setTextColorPicker(false); setSizePicker(false); setTablePicker(false); }
+    if(open){ setStrokePicker(false); setTextColorPicker(false); setSizePicker(false); setTablePicker(false); setShapePicker(false); }
   }
   function setTextColorPicker(open){
     textColorPicker.hidden = !open;
     if(open) fitMenu(textColorPicker);
     if(!open) textColorPicker._panel.el.hidden = true;
     textColorBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open){ setStrokePicker(false); setFillPicker(false); setSizePicker(false); setTablePicker(false); }
+    if(open){ setStrokePicker(false); setFillPicker(false); setSizePicker(false); setTablePicker(false); setShapePicker(false); }
   }
   strokeBtn.addEventListener('click', e=>{ e.stopPropagation(); setStrokePicker(strokePicker.hidden); });
   fillBtn.addEventListener('click', e=>{ e.stopPropagation(); setFillPicker(fillPicker.hidden); });
@@ -3803,7 +3807,7 @@
     sizePicker.hidden = !open;
     if(open) fitMenu(sizePicker);
     sizeBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open){ setStrokePicker(false); setFillPicker(false); setTablePicker(false); }
+    if(open){ setStrokePicker(false); setFillPicker(false); setTablePicker(false); setShapePicker(false); }
   }
   sizeBtn.addEventListener('click', e=>{ e.stopPropagation(); setSizePicker(sizePicker.hidden); });
   document.addEventListener('click', e=>{
@@ -3905,7 +3909,7 @@
     menu.hidden = !open;
     menuBtn.classList.toggle('active', open);
     menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if(open) menuItems()[0].focus();
+    if(open){ menuItems()[0].focus(); setShapePicker(false); }
   }
   menuBtn.addEventListener('click', e=>{ e.stopPropagation(); setMenu(menu.hidden); });
   menuBtn.addEventListener('keydown', e=>{
