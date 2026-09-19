@@ -2507,9 +2507,7 @@
       align = 'center';
     }
     textInput.style.display='block';
-    textInput.style.left = textBox.x+'px';
     textInput.style.top  = (textBox.y-1)+'px';   // -1 = the input's own border width
-    textInput.style.width = textBox.w+'px';
     textInput.style.height = textBox.h+'px';
     textInput.style.textAlign = align;
     textInput.style.paddingTop = '0px';
@@ -2522,8 +2520,22 @@
     textInput.style.lineHeight = Math.max(1, textBox.h-2)+'px';
     textInput.style.color = color;
     textInput.value = value;
+    fitTextInputWidth();   // width/left — grows past the box, centered on it, if the text is already too wide to fit
     render();   // hide the original item (or its edited cell's text) behind the input while editing
     textInput.focus(); textInput.select();   // synchronously: iOS shows the keyboard only for a focus made inside the tap itself
+  }
+  // While editing, text wider than the box shouldn't be hidden behind the input's own native
+  // horizontal auto-scroll (which only reveals whatever's around the caret) — grow the input instead,
+  // centered on the box's own horizontal center, so the whole line stays visible as you type.
+  function fitTextInputWidth(){
+    if(!textBox) return;
+    ctx.save(); ctx.font = textInput.style.font;
+    const measured = ctx.measureText(textInput.value || '').width;
+    ctx.restore();
+    const w = Math.max(textBox.w, measured + 16);   // the input's own padding+border, plus a little breathing room
+    const cx = textBox.x + textBox.w/2;
+    textInput.style.width = w+'px';
+    textInput.style.left = (cx - w/2)+'px';
   }
   const FONTS = {
     sans:'-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
@@ -2614,11 +2626,14 @@
     textBox=null; textDraft=null; editingTextIdx=null; editingCell=null; render();
   }
   textInput.addEventListener('keydown', e=>{
+    // Both keys finish editing by keeping what was typed — same outcome as clicking away (blur)
+    // already does; there's deliberately no keyboard way to discard an edit back to the old text.
     if(e.key==='Enter'){ e.preventDefault(); commitText(); }
-    else if(e.key==='Escape'){ textInput.style.display='none'; textBox=null; textDraft=null; editingTextIdx=null; editingCell=null; render(); }
+    else if(e.key==='Escape'){ e.preventDefault(); commitText(); }
     e.stopPropagation();
   });
   textInput.addEventListener('blur', commitText);
+  textInput.addEventListener('input', fitTextInputWidth);
 
   // ---------- polygon tool: click to add vertices, close on the start point / Enter / the Finish button ----------
   // With a mouse a vertex lands on the press, and the rubber-band edge follows the hover. A finger has
