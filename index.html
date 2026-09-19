@@ -2066,15 +2066,28 @@
           selection = grp.slice();
         }
         beginHistory();
-        drag = {x0:x, y0:y, appliedDx:0, appliedDy:0, axisLock:null, moved:false, hitIdx:hit, wasAlreadySelected, shiftToggle};
-        if(hitItem.type==='text' || hitItem.type==='table'){
-          const textIdx = hit;
-          const cellAtDown = hitItem.type==='table' ? tableCellAt(hitItem, toLocal(hitItem,x,y).x, toLocal(hitItem,x,y).y) : null;
+        let dragHitIdx = hit, forceCommit = false;
+        if(e.ctrlKey){
+          // Ctrl+drag duplicates the selection in place and drags the copy, leaving the original
+          // untouched — same one undo step as a normal drag (the duplication is just part of it).
+          const sortedSel = selection.slice().sort((a,b)=>a-b);
+          const newSel = duplicateItemsInPlace(sortedSel);
+          dragHitIdx = newSel[sortedSel.indexOf(hit)];
+          selection = newSel;
+          shiftToggle = null;   // duplicating supersedes any pending shift-deselect
+          forceCommit = true;   // a duplicate must survive even a click-without-drag (nothing to "discard" it back to)
+        }
+        const dragHitItem = items[dragHitIdx];
+        drag = {x0:x, y0:y, appliedDx:0, appliedDy:0, axisLock:null, moved:false, hitIdx:dragHitIdx, wasAlreadySelected:e.ctrlKey?false:wasAlreadySelected, shiftToggle, forceCommit};
+        if(dragHitItem.type==='text' || dragHitItem.type==='table'){
+          const textIdx = dragHitIdx;
+          const cellAtDown = dragHitItem.type==='table' ? tableCellAt(dragHitItem, toLocal(dragHitItem,x,y).x, toLocal(dragHitItem,x,y).y) : null;
           longPressTimer = setTimeout(()=>{
             longPressTimer = null;
             if(drag && !drag.moved){
-              historyBefore = null; drag = null;
-              if(hitItem.type==='table'){ if(cellAtDown) openText(textIdx, null, null, cellAtDown); }
+              if(drag.forceCommit) commitHistory(); else historyBefore = null;
+              drag = null;
+              if(dragHitItem.type==='table'){ if(cellAtDown) openText(textIdx, null, null, cellAtDown); }
               else openText(textIdx);
             }
           }, 500);
@@ -2333,7 +2346,7 @@
     }
     if(drag){
       if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
-      if(drag.moved){
+      if(drag.moved || drag.forceCommit){
         commitHistory();
       } else {
         historyBefore=null;
@@ -2762,6 +2775,24 @@
   const bringToFront = ()=>reorderSelection(true);
   const sendToBack   = ()=>reorderSelection(false);
 
+  // Clones a set of item INDICES in place (no offset, no history/tool side effects) — the raw
+  // primitive Ctrl+drag duplication builds on; `addClones` below is the equivalent for the
+  // "Duplicate selection" menu command, which nudges the copies and manages its own undo step.
+  function duplicateItemsInPlace(idxs){
+    const gmap = {};
+    const newSel = [];
+    for(const i of idxs){
+      const copy = clone(items[i]);
+      copy.uid = newUid();
+      if(copy.group!=null){
+        if(!gmap[copy.group]) gmap[copy.group] = 'g-' + Date.now() + '-' + (groupSeq++);
+        copy.group = gmap[copy.group];
+      }
+      items.push(copy);
+      newSel.push(items.length-1);
+    }
+    return newSel;
+  }
   // duplicate / copy / paste (images keep their asset id, so the bitmap is shared)
   function addClones(list, off){
     beginHistory();
