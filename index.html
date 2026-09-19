@@ -1983,7 +1983,9 @@
             activeAnchor = pi;
             beginHistory();
             bakeItemRotation(pit);   // so dragging this anchor can't chase a rotation pivot that moves with it
-            editingAnchor = { idx:pointEditIdx, pointIndex:pi, handle:'anchor', sx:x, sy:y, moved:false };
+            const p0 = pit.points[pi];
+            editingAnchor = { idx:pointEditIdx, pointIndex:pi, handle:'anchor', sx:x, sy:y, moved:false,
+                               startX:p0.x, startY:p0.y, appliedDx:0, appliedDy:0, axisLock:null };
             render();
             return;
           }
@@ -2103,7 +2105,7 @@
     if(ui.tool==='table'){ placeTable(x,y); return; }
     if(ui.tool==='shape'){ if(ui.pendingShape) placeShapeAt(ui.pendingShape, x, y); return; }
 
-    if(ui.tool==='polygon'){ polygonPress(x, y, e.pointerType!=='mouse'); return; }
+    if(ui.tool==='polygon'){ polygonPress(x, y, e.pointerType!=='mouse', e.shiftKey); return; }
 
     if(ui.tool==='eraser'){
       beginHistory();
@@ -2143,13 +2145,26 @@
       const pt = it.points[editingAnchor.pointIndex];
       if(editingAnchor.handle==='anchor'){
         // plain translation of just this point (anchor + its own handles ride along together) — the
-        // curve's local shape at this point is unchanged, only its position, so this uses the same
-        // incremental-delta convention as the whole-item `drag`, not `resizing`'s fixed-anchor recompute
-        const lp0 = toLocal(it, editingAnchor.sx, editingAnchor.sy), lp1 = toLocal(it, x, y);
-        const dx = lp1.x-lp0.x, dy = lp1.y-lp0.y;
-        pt.x = norm(pt.x+dx); pt.y = norm(pt.y+dy);
-        if(pt.c1){ pt.c1.x=norm(pt.c1.x+dx); pt.c1.y=norm(pt.c1.y+dy); }
-        if(pt.c2){ pt.c2.x=norm(pt.c2.x+dx); pt.c2.y=norm(pt.c2.y+dy); }
+        // curve's local shape at this point is unchanged, only its position. Recomputed fresh each
+        // frame as a total offset from the point's own pristine (pre-drag) position — same
+        // dead-zone-then-lock axis convention as the whole-item `drag` — rather than accumulating
+        // raw per-frame deltas, so Shift can constrain it to horizontal/vertical.
+        const lp1 = toLocal(it, x, y);
+        const rawDx = lp1.x-editingAnchor.startX, rawDy = lp1.y-editingAnchor.startY;
+        let targetDx = rawDx, targetDy = rawDy;
+        if(e.shiftKey){
+          if(!editingAnchor.axisLock && Math.hypot(rawDx,rawDy)>=3) editingAnchor.axisLock = Math.abs(rawDx)>=Math.abs(rawDy) ? 'x' : 'y';
+          if(editingAnchor.axisLock==='x') targetDy = 0;
+          else if(editingAnchor.axisLock==='y') targetDx = 0;
+          else targetDx = targetDy = 0;
+        } else {
+          editingAnchor.axisLock = null;
+        }
+        const stepDx = targetDx-editingAnchor.appliedDx, stepDy = targetDy-editingAnchor.appliedDy;
+        pt.x = norm(pt.x+stepDx); pt.y = norm(pt.y+stepDy);
+        if(pt.c1){ pt.c1.x=norm(pt.c1.x+stepDx); pt.c1.y=norm(pt.c1.y+stepDy); }
+        if(pt.c2){ pt.c2.x=norm(pt.c2.x+stepDx); pt.c2.y=norm(pt.c2.y+stepDy); }
+        editingAnchor.appliedDx = targetDx; editingAnchor.appliedDy = targetDy;
       } else {
         const lp = toLocal(it, x, y);
         pt[editingAnchor.handle] = { x:norm(lp.x), y:norm(lp.y) };
@@ -2306,7 +2321,14 @@
       current.h = Math.abs(h);
     } else if(current.type==='polygon'){
       const h = snapToPolygonStart(current.points, x, y);   // rubber-band edge to the pointer, snapped to the start point when close enough to close
-      current._hover = {x:h.x, y:h.y}; current._snapped = h.snapped;
+      let hx = h.x, hy = h.y;
+      // Shift constrains the NEXT point to be exactly horizontal or vertical from the last one placed
+      // — closing the polygon (above) always wins over this when both would apply.
+      if(!h.snapped && e.shiftKey && current.points.length){
+        const last = current.points[current.points.length-1];
+        if(Math.abs(hx-last.x) >= Math.abs(hy-last.y)) hy = last.y; else hx = last.x;
+      }
+      current._hover = {x:hx, y:hy}; current._snapped = h.snapped;
     }
     render();
   }
@@ -2403,7 +2425,7 @@
     if(ui.tool==='polygon'){
       // a mouse vertex landed on the press; a finger's lands here, where it lifts. The polygon itself
       // finishes via click-to-close / Enter / the Finish button, never on a pointerup.
-      if(polyDraft && polyDraft._touch){ polyDraft._touch = false; const q = pos(e); polygonVertex(q.x, q.y); }
+      if(polyDraft && polyDraft._touch){ polyDraft._touch = false; const q = pos(e); polygonVertex(q.x, q.y, e.shiftKey); }
       return;
     }
     if(!current){ return; }
@@ -2614,7 +2636,7 @@
     return {x, y, snapped:false};
   }
   let polygonClosedByClickAt = -Infinity;   // timestamp of the last click/tap that closed a polygon by itself — see below
-  function polygonPress(x, y, touch){
+  function polygonPress(x, y, touch, shiftKey){
     if(!polyDraft){
       beginHistory();
       polyDraft = { type:'polygon', color:legibleColor(ui.color, ui.fill, ui.fillColor), size:ui.size, strokeOn:ui.strokeOn, fill:ui.fill, fillColor:ui.fillColor, dash:ui.dash, points:[] };
@@ -2624,15 +2646,21 @@
       const h = snapToPolygonStart(polyDraft.points, x, y);
       polyDraft._hover = {x:h.x, y:h.y}; polyDraft._snapped = h.snapped; polyDraft._touch = true;
     }
-    else polygonVertex(x, y);
+    else polygonVertex(x, y, shiftKey);
     render();
   }
-  function polygonVertex(x, y){
+  function polygonVertex(x, y, shiftKey){
     const pts = polyDraft.points;
     const h = snapToPolygonStart(pts, x, y);
     // Closing on a click/tap here is a distinct user action, not "place a corner" — even a genuine
     // double-click/double-tap on this same spot must not also place one afterward (see onDoubleClick).
     if(h.snapped){ polygonClosedByClickAt = performance.now(); finishPolygon(); return; }
+    // Shift constrains the new corner to be exactly horizontal or vertical from the last one placed —
+    // matches the rubber-band preview (onMove), so the point actually lands where it was previewed.
+    if(shiftKey && pts.length){
+      const last = pts[pts.length-1];
+      if(Math.abs(x-last.x) >= Math.abs(y-last.y)) y = last.y; else x = last.x;
+    }
     pts.push({x,y});
     polyDraft._hover = null; polyDraft._snapped = false;
     render();
