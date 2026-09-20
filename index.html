@@ -4062,12 +4062,15 @@
   // touch-action:none on canvas/textInput doesn't reliably stop Safari's native double-tap-to-zoom
   // on iPadOS — recognise the same "two quick taps" pattern as onTapUp above, directly on the raw
   // touch event, and cancel it there; that's the only level low enough to reliably override it.
+  // This uses its own, more generous window than onTapUp's 300ms — Safari's own double-tap-zoom
+  // gesture tolerates a noticeably slower second tap than that, so a double-tap paced just outside
+  // onTapUp's window (no app action fires) could still fall inside Safari's and zoom anyway.
   let lastTouchEndForZoom = null;
   function preventDoubleTapZoom(e){
     const t = e.changedTouches && e.changedTouches[0];
     if(!t) return;
     const now = performance.now();
-    if(lastTouchEndForZoom && now-lastTouchEndForZoom.t < 300 && Math.hypot(t.clientX-lastTouchEndForZoom.x, t.clientY-lastTouchEndForZoom.y) < 25){
+    if(lastTouchEndForZoom && now-lastTouchEndForZoom.t < 500 && Math.hypot(t.clientX-lastTouchEndForZoom.x, t.clientY-lastTouchEndForZoom.y) < 40){
       e.preventDefault();
       lastTouchEndForZoom = null;
     } else {
