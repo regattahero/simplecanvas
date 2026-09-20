@@ -4128,7 +4128,10 @@
       return;
     }
     const {x,y} = pos(e);
-    const hit = hitTest(x,y);
+    // If this dblclick's second tap just advanced a click-cycle through a stack of overlapping
+    // objects (see pickWithClickCycle), selection already correctly names the item the user is
+    // now on — a fresh hitTest here would ignore that and always jump back to the topmost one.
+    const hit = selection.length===1 ? selection[0] : hitTest(x,y);
     if(hit>=0 && items[hit].type==='text'){
       openText(hit);
       return;
