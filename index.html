@@ -1450,16 +1450,24 @@
   // for a finger than a mouse cursor — a mouse can re-click within a couple of pixels, but two taps
   // meant to land on the same spot commonly land 10-20px apart, which would otherwise restart the
   // cycle at the top on almost every second tap.
+  // The item to actually grab for THIS press is always whatever's already selected — so pressing
+  // again and dragging moves it, instead of the press itself silently jumping the selection to a
+  // different object before we even know a drag is happening. The deeper item is only offered back
+  // as `pendingCycleHit`, a PENDING choice the caller applies in onUp, and only if this press turns
+  // out to be a plain click rather than a drag.
   function pickWithClickCycle(x,y,tol){
     const stack = hitStack(x,y);
-    if(!stack.length){ clickCycle = null; return -1; }
-    let depth = 0;
-    if(clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y)<=tol &&
-       sameSelection(selection, selectionFor(clickCycle.stack[clickCycle.depth]))){
-      depth = (clickCycle.depth+1) % stack.length;
+    if(!stack.length){ clickCycle = null; return {hit:-1, pendingCycleHit:null}; }
+    const continuing = clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y)<=tol &&
+                        sameSelection(selection, selectionFor(clickCycle.stack[clickCycle.depth]));
+    if(continuing && stack.length>1){
+      const hit = clickCycle.stack[clickCycle.depth];
+      const nextDepth = (clickCycle.depth+1) % stack.length;
+      clickCycle = {x, y, stack, depth:nextDepth};
+      return {hit, pendingCycleHit:stack[nextDepth]};
     }
-    clickCycle = {x, y, stack, depth};
-    return stack[depth];
+    clickCycle = {x, y, stack, depth:0};
+    return {hit:stack[0], pendingCycleHit:null};
   }
   // Marquee selection requires an item's bbox to be FULLY inside the drag rectangle, not just
   // touching it — with many/overlapping objects, "touches" made it practically impossible to
@@ -2048,7 +2056,7 @@
           }
         }
       }
-      const hit = pickWithClickCycle(x,y, e.pointerType==='mouse' ? 3 : 24);
+      const { hit, pendingCycleHit } = pickWithClickCycle(x,y, e.pointerType==='mouse' ? 3 : 24);
       if(hit>=0){
         const hitItem = items[hit];
         const g = hitItem.group;
@@ -2065,7 +2073,7 @@
           selection = grp.slice();
         }
         beginHistory();
-        let dragHitIdx = hit, forceCommit = false;
+        let dragHitIdx = hit, forceCommit = false, cycleHit = pendingCycleHit;
         if(e.ctrlKey){
           // Ctrl+drag duplicates the selection in place and drags the copy, leaving the original
           // untouched — same one undo step as a normal drag (the duplication is just part of it).
@@ -2075,9 +2083,10 @@
           selection = newSel;
           shiftToggle = null;   // duplicating supersedes any pending shift-deselect
           forceCommit = true;   // a duplicate must survive even a click-without-drag (nothing to "discard" it back to)
+          cycleHit = null;      // duplicating supersedes any pending click-cycle advance too
         }
         const dragHitItem = items[dragHitIdx];
-        drag = {x0:x, y0:y, appliedDx:0, appliedDy:0, axisLock:null, moved:false, hitIdx:dragHitIdx, wasAlreadySelected:e.ctrlKey?false:wasAlreadySelected, shiftToggle, forceCommit};
+        drag = {x0:x, y0:y, appliedDx:0, appliedDy:0, axisLock:null, moved:false, hitIdx:dragHitIdx, wasAlreadySelected:e.ctrlKey?false:wasAlreadySelected, shiftToggle, forceCommit, pendingCycleHit:cycleHit};
         if(dragHitItem.type==='text' || dragHitItem.type==='table'){
           const textIdx = dragHitIdx;
           const cellAtDown = dragHitItem.type==='table' ? tableCellAt(dragHitItem, toLocal(dragHitItem,x,y).x, toLocal(dragHitItem,x,y).y) : null;
@@ -2371,6 +2380,12 @@
         historyBefore=null;
         if(drag.shiftToggle){
           selection = selection.filter(i=>drag.shiftToggle.indexOf(i)<0);
+          render();
+        } else if(drag.pendingCycleHit!=null){
+          // this press didn't turn into a drag, so it's a plain repeat click after all — now it's
+          // safe to actually advance the cycle to the next object stacked underneath
+          const cg = items[drag.pendingCycleHit].group;
+          selection = (cg!=null) ? itemsInGroup(cg) : [drag.pendingCycleHit];
           render();
         } else if(drag.wasAlreadySelected && drag.hitIdx!=null){
           const it = items[drag.hitIdx];
