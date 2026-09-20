@@ -4055,6 +4055,23 @@
     } else lastTap = { t:now, x:e.clientX, y:e.clientY };
   }
   canvas.addEventListener('dblclick', onDoubleClick);
+  // touch-action:none on canvas/textInput doesn't reliably stop Safari's native double-tap-to-zoom
+  // on iPadOS — recognise the same "two quick taps" pattern as onTapUp above, directly on the raw
+  // touch event, and cancel it there; that's the only level low enough to reliably override it.
+  let lastTouchEndForZoom = null;
+  function preventDoubleTapZoom(e){
+    const t = e.changedTouches && e.changedTouches[0];
+    if(!t) return;
+    const now = performance.now();
+    if(lastTouchEndForZoom && now-lastTouchEndForZoom.t < 300 && Math.hypot(t.clientX-lastTouchEndForZoom.x, t.clientY-lastTouchEndForZoom.y) < 25){
+      e.preventDefault();
+      lastTouchEndForZoom = null;
+    } else {
+      lastTouchEndForZoom = { t:now, x:t.clientX, y:t.clientY };
+    }
+  }
+  canvas.addEventListener('touchend', preventDoubleTapZoom, { passive:false });
+  textInput.addEventListener('touchend', preventDoubleTapZoom, { passive:false });
   function onDoubleClick(e){
     if(performance.now() - polygonClosedByClickAt < 500){
       // the click/tap that started this gesture already closed the polygon by itself (it landed on
