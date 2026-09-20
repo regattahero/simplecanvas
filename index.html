@@ -1446,11 +1446,15 @@
   // ones underneath are simply unreachable by clicking. Clicking again at (about) the same spot
   // instead steps one layer deeper each time, wrapping back to the top after the bottom; clicking
   // anywhere else, or the selection having changed for some other reason since, restarts at the top.
-  function pickWithClickCycle(x,y){
+  // `tol` (how close "the same spot" needs to be) is caller-supplied because it must be far looser
+  // for a finger than a mouse cursor — a mouse can re-click within a couple of pixels, but two taps
+  // meant to land on the same spot commonly land 10-20px apart, which would otherwise restart the
+  // cycle at the top on almost every second tap.
+  function pickWithClickCycle(x,y,tol){
     const stack = hitStack(x,y);
     if(!stack.length){ clickCycle = null; return -1; }
     let depth = 0;
-    if(clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y)<=3 &&
+    if(clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y)<=tol &&
        sameSelection(selection, selectionFor(clickCycle.stack[clickCycle.depth]))){
       depth = (clickCycle.depth+1) % stack.length;
     }
@@ -2044,7 +2048,7 @@
           }
         }
       }
-      const hit = pickWithClickCycle(x,y);
+      const hit = pickWithClickCycle(x,y, e.pointerType==='mouse' ? 3 : 24);
       if(hit>=0){
         const hitItem = items[hit];
         const g = hitItem.group;
