@@ -36,16 +36,16 @@
     display:flex;
     flex-wrap:wrap;
     align-items:center;
-    gap:6px 3px;              /* horizontal gap matches .group so every separator sits evenly from its neighbours */
-    padding:8px 6px;
+    gap:6px 2px;              /* horizontal gap matches .group so every separator sits evenly from its neighbours */
+    padding:8px 4px;
     background:var(--panel);
     border-bottom:1px solid var(--line);
     box-shadow:var(--shadow);
     z-index:10;
   }
 
-  .group{display:flex;align-items:center;gap:3px}
-  .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 1px}
+  .group{display:flex;align-items:center;gap:2px}
+  .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 0}
   #arrangeSep{margin-left:9px}
   .sep.row-edge{display:none}   /* set by tidySeps(): a separator with nothing beside it on its row */
 
