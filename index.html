@@ -54,6 +54,7 @@
     flex:0 0 auto;display:flex;align-items:center;gap:2px;padding:4px 6px;
     background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;
   }
+  .tabbar[hidden]{display:none}
   .tabbar-scroll{display:flex;align-items:center;gap:2px;overflow-x:auto;flex:1 1 auto;min-width:0}
   .tab{display:flex;align-items:center;gap:2px;border-radius:8px;padding:2px}
   .tab-select{
@@ -318,6 +319,10 @@
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H3V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10h18l-2 8a1 1 0 0 1-1 .8H6a1 1 0 0 1-1-.8L3 10Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         Open sketch… <span class="sc">⌘O</span>
       </button>
+      <button data-act="newTab" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add tab
+      </button>
       <div class="menu-sep" role="separator"></div>
       <button data-act="png" role="menuitem">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -552,11 +557,8 @@
 
 </header>
 
-<div class="tabbar" id="tabbar" role="tablist" aria-label="Open sketches">
+<div class="tabbar" id="tabbar" role="tablist" aria-label="Open sketches" hidden>
   <div class="tabbar-scroll" id="tabbarScroll"></div>
-  <button class="btn ghost" id="newTabBtn" title="New sketch tab">
-    <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-  </button>
 </div>
 
 <div class="stage">
@@ -3993,6 +3995,7 @@
   const MENU_ACTIONS = {
     save: exportProject,
     open: ()=>projectInput.click(),
+    newTab: newTab,
     png: savePng,
     svg: saveSvg,
     print: ()=>window.print(),
@@ -4298,8 +4301,8 @@
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) save(); });
 
   // ---------- tabs (multiple independent documents) ----------
+  const tabbar = document.getElementById('tabbar');
   const tabbarScroll = document.getElementById('tabbarScroll');
-  const newTabBtn = document.getElementById('newTabBtn');
 
   function saveTabList(){
     try{ localStorage.setItem(TABS_KEY, JSON.stringify({version:1, tabs, activeId:activeTabId})); }
@@ -4414,6 +4417,7 @@
   }
 
   function renderTabs(){
+    tabbar.hidden = tabs.length < 2;   // a single tab needs no bar at all
     tabbarScroll.innerHTML = '';
     for(const tab of tabs){
       const row = document.createElement('div');
@@ -4432,9 +4436,8 @@
       row.append(selectBtn, closeBtn);
       tabbarScroll.appendChild(row);
     }
-    resize();   // the tab bar's own height may have changed (wrapped, grew/shrank) — re-measure the stage
+    resize();   // the tab bar's own height may have changed (shown/hidden, wrapped, grew/shrank) — re-measure the stage
   }
-  newTabBtn.addEventListener('click', newTab);
 
   // ---------- boot ----------
   // show the platform's own modifier in shortcut hints (⌘ on Mac, Ctrl elsewhere)
