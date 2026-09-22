@@ -247,10 +247,12 @@
     position:absolute;z-index:5;display:none;
     border:1px dashed var(--accent);outline:none;
     background:rgba(255,255,255,.65);
-    font-family:inherit;padding:0 4px;border-radius:4px;
+    font-family:inherit;padding:0 5px;border-radius:4px;   /* + the 1px border each side = 12px total horizontal inset, matching wrapTextToWidth's `boxW-12` so live wrapping lines up with the committed render */
     color:var(--ink);min-width:40px;
     appearance:none;-webkit-appearance:none;
     touch-action:none;   /* iPad Safari: without this, a double-tap here zooms the whole page instead of just placing the caret */
+    resize:none;overflow:hidden;   /* a <textarea> now, but still a single fixed-purpose editing widget, not a resizable/scrollable one */
+    box-sizing:border-box;   /* fitTextInputSize() sets padding-top to vertically center the text block; border-box keeps that from also inflating the element's own footprint */
   }
 
   .hint{
@@ -535,7 +537,7 @@
 <div class="stage">
   <div class="wrap" id="wrap">
     <canvas id="canvas"></canvas>
-    <input id="textInput" type="text" autocomplete="off" spellcheck="false">
+    <textarea id="textInput" autocomplete="off" spellcheck="false"></textarea>
     <div class="hint" id="hint">
       Pick a tool and start sketching.<br>
       <span style="font-size:13px">Saved automatically · paste or drop an image · <kbd>⌘/Ctrl</kbd>+<kbd>Z</kbd> to undo</span>
@@ -648,7 +650,7 @@
   let pointEditIdx = null;      // index into items[] currently in Point-Edit mode; null = not in this mode
   let activeAnchor  = null;     // index into that polygon's points[] whose handles are shown/draggable
   let editingAnchor = null;     // {idx,pointIndex,handle:'anchor'|'c1'|'c2',sx,sy,moved} while dragging
-  const HANDLE_SUB = 8;         // control-handle hit radius (px) — slightly smaller than HANDLE, so anchor vs handle don't fight
+  const HANDLE_SUB = 9.6;       // control-handle hit radius (px) — 20% bigger than the original 8, for easier touch targeting
   const KAPPA = 0.5522847498;   // 4-point cubic-bezier circle/ellipse approximation constant
   const CONVERTIBLE_TYPES = new Set(['line','arrow','rect','ellipse','polygon']);
   let snapPt = null;            // anchor a line/arrow endpoint is currently snapped to (for the indicator ring)
@@ -929,6 +931,48 @@
   const boxStyle = it => ({ fill:fillOf(it), stroke:strokeOf(it), width:it.size, join:'round', dash:dashOf(it) });
   // text sits 6px in from the left/right edge, or on the center line
   function textAnchorX(x, w, align){ return align==='left' ? x+6 : align==='right' ? x+w-6 : x+w/2; }
+  // Greedy word-wrap to fit maxWidth — ctx.font must already be set. A single word wider than
+  // maxWidth on its own still gets broken, at the character level, so it never silently overflows.
+  function wrapTextToWidth(text, maxWidth){
+    const words = text.split(' ');
+    const rough = [];
+    let line = '';
+    for(const word of words){
+      const test = line ? line + ' ' + word : word;
+      if(!line || ctx.measureText(test).width <= maxWidth) line = test;
+      else { rough.push(line); line = word; }
+    }
+    rough.push(line);
+    const lines = [];
+    for(const l of rough){
+      if(ctx.measureText(l).width <= maxWidth){ lines.push(l); continue; }
+      let chunk = '';
+      for(const ch of l){
+        const t2 = chunk + ch;
+        if(chunk && ctx.measureText(t2).width > maxWidth){ lines.push(chunk); chunk = ch; }
+        else chunk = t2;
+      }
+      if(chunk) lines.push(chunk);
+    }
+    return lines.length ? lines : [''];
+  }
+  // Wraps `text` to fit boxW (minus the same 6px side inset textAnchorX uses) and returns each
+  // line together with its own baseline Y, vertically centering the whole block on the box — the
+  // box's own height is never grown or clipped to fit, a block taller than boxH simply extends
+  // above/below it symmetrically. ctx.font must already be set. Shared by the canvas renderer and
+  // the SVG exporter so both wrap and vertically center text identically.
+  function layoutWrappedText(text, boxY, boxW, boxH){
+    const maxWidth = Math.max(1, boxW - 12);
+    const lines = wrapTextToWidth(text, maxWidth);
+    const fontMatch = /(\d+(?:\.\d+)?)px/.exec(ctx.font);
+    const fontSize = fontMatch ? parseFloat(fontMatch[1]) : 16;
+    const lineHeight = fontSize * 1.2;
+    const m = ctx.measureText(lines[0]);
+    const asc = m.actualBoundingBoxAscent || fontSize*0.8, desc = m.actualBoundingBoxDescent || fontSize*0.2;
+    const blockHeight = lineHeight*(lines.length-1) + (asc+desc);
+    let y = boxY + boxH/2 - blockHeight/2 + asc;
+    return lines.map(line => { const ly = y; y += lineHeight; return {line, y:ly}; });
+  }
   // freehand strokes are smoothed: each vertex becomes the control point of a quadratic curve
   // ending at the midpoint to the next vertex
   function smoothSegments(p){
@@ -1171,18 +1215,18 @@
     ctx.restore();
   }
 
-  // Renders one line of text aligned within a box, vertically centered using its actual measured
-  // glyph bounds (not the 'middle' baseline heuristic, which sits visually high for most fonts).
-  // Caller must set ctx.font (and ctx.fillStyle) first; this only touches textAlign/textBaseline.
+  // Renders text aligned within a box, wrapping at word (or, failing that, character) boundaries to
+  // stay inside the box's width, and vertically centering the whole block using its actual measured
+  // glyph bounds (not the 'middle' baseline heuristic, which sits visually high for most fonts). The
+  // box's height is never grown or clipped to fit — a block taller than it just overflows evenly
+  // above and below. Caller must set ctx.font (and ctx.fillStyle) first; this only touches
+  // textAlign/textBaseline.
   function drawAlignedText(text, boxX, boxY, boxW, boxH, align){
     if(!text) return;
     ctx.textAlign = align || 'center';
     ctx.textBaseline = 'alphabetic';
     const tx = textAnchorX(boxX, boxW, align);
-    const m = ctx.measureText(text);
-    const asc = m.actualBoundingBoxAscent||0, desc = m.actualBoundingBoxDescent||0;
-    const baselineY = boxY + boxH/2 + (asc-desc)/2;
-    ctx.fillText(text, tx, baselineY);
+    for(const {line, y} of layoutWrappedText(text, boxY, boxW, boxH)) ctx.fillText(line, tx, y);
     ctx.textAlign = 'left';
   }
   // A text box being dragged out with fill and stroke both off would otherwise be completely
@@ -1843,7 +1887,7 @@
               if(!target) continue;
               const hw = toWorld(pit, target.x, target.y);
               ctx.beginPath(); ctx.moveTo(aw.x, aw.y); ctx.lineTo(hw.x, hw.y); ctx.stroke();
-              ctx.beginPath(); ctx.rect(hw.x-5, hw.y-5, 10, 10);
+              ctx.beginPath(); ctx.rect(hw.x-6, hw.y-6, 12, 12);   // 20% bigger than the anchor's own 10x10 square
               ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
             }
             ctx.beginPath(); ctx.rect(aw.x-5, aw.y-5, 10, 10);
@@ -1995,6 +2039,15 @@
             return;
           }
         }
+        // Missed every handle — in Point-Edit mode a press must only ever move a handle, never the
+        // whole curve (handles are small and easy to miss, especially by touch; falling through to a
+        // whole-item drag here made that an easy, frustrating accident). Only suppress the fallthrough
+        // when the press still landed on the SAME item's own body (that would otherwise start a
+        // whole-item drag/click-cycle on it) — an empty-canvas click, or a click on a genuinely
+        // different object, must still fall through: the former deselects/exits Point-Edit like
+        // before, the latter switches to that object (both via syncPointEdit() once selection changes).
+        const missHit = hitTest(x,y);
+        if(missHit===pointEditIdx) return;
       }
       // endpoint handles of a lone line/arrow — drag one end, the other stays put
       const li = loneLineIdx(selection);
@@ -2519,35 +2572,44 @@
       align = 'center';
     }
     textInput.style.display='block';
-    textInput.style.top  = (textBox.y-1)+'px';   // -1 = the input's own border width
-    textInput.style.height = textBox.h+'px';
     textInput.style.textAlign = align;
-    textInput.style.paddingTop = '0px';
     textInput.style.font = fontStr(family, fontSize);
-    // vertically center the single line of text: line-height set to the box's own content height
-    // (box height minus the 1px top+bottom border) is a reliable way to center it, independent of
-    // how a given browser otherwise lays out a native <input>'s text vertically.
-    // Must be set AFTER `font` above — the font shorthand resets line-height to 'normal' if it isn't
-    // set right afterward.
-    textInput.style.lineHeight = Math.max(1, textBox.h-2)+'px';
+    // line-height must be set AFTER `font` above — the font shorthand resets it to 'normal' otherwise.
+    // A fixed multi-line value (not the old single-line "= box height" trick) matches how the
+    // committed, wrapped text is spaced once rendered — fitTextInputSize() positions/sizes the box
+    // around it below.
+    textInput.style.lineHeight = (fontSize*1.2)+'px';
     textInput.style.color = color;
     textInput.value = value;
-    fitTextInputWidth();   // width/left — grows past the box, centered on it, if the text is already too wide to fit
+    fitTextInputSize();   // width stays the box's own; height grows (centered) to fit wrapped lines
     render();   // hide the original item (or its edited cell's text) behind the input while editing
     textInput.focus(); textInput.select();   // synchronously: iOS shows the keyboard only for a focus made inside the tap itself
   }
-  // While editing, text wider than the box shouldn't be hidden behind the input's own native
-  // horizontal auto-scroll (which only reveals whatever's around the caret) — grow the input instead,
-  // centered on the box's own horizontal center, so the whole line stays visible as you type.
-  function fitTextInputWidth(){
+  // The box's own width/height never change — text wraps within the fixed width (matching the final
+  // render), and if the wrapped lines need more height than the box has, the editing widget grows
+  // TALLER, centered vertically on the box, so it overflows evenly above/below just like the
+  // committed render does. (Before wrapping existed, this used to grow WIDER for an over-long single
+  // line instead — same idea, the other axis.)
+  function fitTextInputSize(){
     if(!textBox) return;
+    if(/[\r\n]/.test(textInput.value)) textInput.value = textInput.value.replace(/[\r\n]+/g, ' ');   // this was always a single logical line; a paste is the only way a real newline could sneak in
+    textInput.style.width = textBox.w+'px';
+    textInput.style.left = textBox.x+'px';
     ctx.save(); ctx.font = textInput.style.font;
-    const measured = ctx.measureText(textInput.value || '').width;
+    const maxWidth = Math.max(1, textBox.w - 12);
+    const lineCount = wrapTextToWidth(textInput.value || '', maxWidth).length;
     ctx.restore();
-    const w = Math.max(textBox.w, measured + 16);   // the input's own padding+border, plus a little breathing room
-    const cx = textBox.x + textBox.w/2;
-    textInput.style.width = w+'px';
-    textInput.style.left = (cx - w/2)+'px';
+    const lineHeightPx = parseFloat(textInput.style.lineHeight);
+    const neededH = lineHeightPx*lineCount;
+    const h = Math.max(textBox.h, neededH);
+    const cy = textBox.y + textBox.h/2;
+    textInput.style.height = h+'px';
+    textInput.style.top = (cy - h/2 - 1)+'px';   // -1 = the input's own border width
+    // A <textarea> always top-anchors its own content, unlike the old single-line <input> (which
+    // relied on line-height alone to look centered) -- so whenever the box is taller than the text
+    // actually needs, push the text down with padding to keep it visually centered instead of stuck
+    // at the top.
+    textInput.style.paddingTop = Math.max(0, (h - neededH)/2)+'px';
   }
   const FONTS = {
     sans:'-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
@@ -2645,7 +2707,7 @@
     e.stopPropagation();
   });
   textInput.addEventListener('blur', commitText);
-  textInput.addEventListener('input', fitTextInputWidth);
+  textInput.addEventListener('input', fitTextInputSize);
 
   // ---------- polygon tool: click to add vertices, close on the start point / Enter / the Finish button ----------
   // With a mouse a vertex lands on the press, and the rubber-band edge follows the hover. A finger has
@@ -3169,8 +3231,13 @@
       case 'rect': return `<rect x="${op.x}" y="${op.y}" width="${op.w}" height="${op.h}"${styleAttrs(op.style)}/>`;
       case 'ellipse': return `<ellipse cx="${op.cx}" cy="${op.cy}" rx="${op.rx}" ry="${op.ry}"${styleAttrs(op.style)}/>`;
       case 'text': {
+        if(!op.text) return '';
         const anchor = op.align==='left' ? 'start' : op.align==='right' ? 'end' : 'middle';
-        return `<text x="${textAnchorX(op.x, op.w, op.align)}" y="${op.y+op.h/2}" fill="${escXml(op.color)}" text-anchor="${anchor}" dominant-baseline="middle" style="font:${escXml(op.font)}">${escXml(op.text)}</text>`;
+        const tx = textAnchorX(op.x, op.w, op.align);
+        ctx.font = op.font;   // layoutWrappedText measures with it; wrapping must match the canvas exactly
+        const tspans = layoutWrappedText(op.text, op.y, op.w, op.h)
+          .map(({line, y}) => `<tspan x="${tx}" y="${y}">${escXml(line)}</tspan>`).join('');
+        return `<text fill="${escXml(op.color)}" text-anchor="${anchor}" style="font:${escXml(op.font)}">${tspans}</text>`;
       }
     }
     return '';
