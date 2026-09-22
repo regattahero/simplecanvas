@@ -40,7 +40,6 @@
     padding:8px 4px;
     background:var(--panel);
     border-bottom:1px solid var(--line);
-    box-shadow:var(--shadow);
     z-index:10;
   }
 
@@ -48,6 +47,27 @@
   .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 0}
   #arrangeSep{margin-left:9px}
   .sep.row-edge{display:none}   /* set by tidySeps(): a separator with nothing beside it on its row */
+
+  /* ---------- Tab bar ---------- */
+  .tabbar{
+    flex:0 0 auto;display:flex;align-items:center;gap:2px;padding:4px 6px;
+    background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;
+  }
+  .tabbar[hidden]{display:none}
+  .tabbar-scroll{display:flex;align-items:center;gap:2px;overflow-x:auto;flex:1 1 auto;min-width:0}
+  .tab{display:flex;align-items:center;gap:0;border-radius:8px;padding:2px}
+  .tab-select{
+    -webkit-appearance:none;appearance:none;border:1px solid transparent;background:transparent;
+    height:28px;padding:0 4px 0 8px;border-radius:6px;font-size:14px;font-weight:550;color:var(--ink);
+    cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;
+  }
+  .tab-select:hover{background:#f3f4f6}
+  .tab-select.active{background:var(--accent-soft);color:var(--accent)}
+  .tab-close{
+    -webkit-appearance:none;appearance:none;border:none;background:transparent;
+    width:24px;height:24px;margin-right:2px;border-radius:5px;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;
+  }
+  .tab-close:hover{background:#fef2f2;color:var(--danger)}
 
   .btn{
     -webkit-appearance:none;appearance:none;
@@ -277,7 +297,7 @@
 
   @media print{
     body{background:#fff}
-    .toolbar,.hint,#toast{display:none !important}
+    .toolbar,.tabbar,.hint,#toast{display:none !important}
     .stage{padding:0}
     .wrap{box-shadow:none;border-radius:0;background:#fff}
   }
@@ -299,6 +319,10 @@
       <button data-act="open" role="menuitem">
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H3V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10h18l-2 8a1 1 0 0 1-1 .8H6a1 1 0 0 1-1-.8L3 10Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         Open sketch… <span class="sc">⌘O</span>
+      </button>
+      <button data-act="newTab" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add tab
       </button>
       <div class="menu-sep" role="separator"></div>
       <button data-act="png" role="menuitem">
@@ -534,6 +558,10 @@
 
 </header>
 
+<div class="tabbar" id="tabbar" role="tablist" aria-label="Open sketches" hidden>
+  <div class="tabbar-scroll" id="tabbarScroll"></div>
+</div>
+
 <div class="stage">
   <div class="wrap" id="wrap">
     <canvas id="canvas"></canvas>
@@ -607,7 +635,9 @@
   const polyFinishOpenBtn = document.getElementById('polyFinishOpen');
   const polyCancelBtn = document.getElementById('polyCancel');
 
-  const STORE_KEY = 'simplecanvas:v1';
+  const LEGACY_STORE_KEY = 'simplecanvas:v1';   // pre-tabs single document — migrated into a tab once, then unused
+  const TABS_KEY = 'simplecanvas:tabs:v1';
+  const docKey = id => 'simplecanvas:doc:' + id;
   const FORMAT_VERSION = 2;     // bump when the saved-file schema changes (2: group pivots ignore stroke width)
   const BG = '#ffffff';
   const PRESETS = {   // swatch color -> its tooltip, in display order
@@ -619,13 +649,24 @@
   // ---------- state ----------
   let items = [];               // committed scene objects
   let current = null;           // in-progress preview object
-  let ui = { tool:'pen', color:'#1f2937', size:6, strokeOn:true, fill:false, fillColor:'#ffd166', textColor:'#1f2937', fontFamily:'sans', fontSize:28, tableRows:3, tableCols:3, pendingShape:null,
+  // the toolbar's current tool/color/size/etc — per-tab, reset/restored by defaultUi()/normalizeUi() on tab switch
+  function defaultUi(){
+    return { tool:'pen', color:'#1f2937', size:6, strokeOn:true, fill:false, fillColor:'#ffd166', textColor:'#1f2937', fontFamily:'sans', fontSize:28, tableRows:3, tableCols:3, pendingShape:null,
              // a text box keeps its own border/fill/width, so plain text stays plain while shapes keep their outline
              text: { color:'#1f2937', size:2, strokeOn:false, fill:false, fillColor:'#ffd166' } };
+  }
+  let ui = defaultUi();
   // the drawing defaults (color, size, strokeOn, fill, fillColor) that a tool or an item type uses
   const styleFor = t => t==='text' ? ui.text : ui;
   const drawStyle = () => styleFor(ui.tool);
   let dpr = 1, cssW = 0, cssH = 0;
+
+  // ---------- tabs (multiple independent documents) ----------
+  let tabs = [];                 // [{id, name}, ...] — mirrors the tabbar UI and the TABS_KEY localStorage entry
+  let activeTabId = null;
+  let tabHistories = new Map();  // tabId -> {undoStack, redoStack}, kept only for this page's lifetime (not persisted)
+  let tabSeq = 0;
+  const newTabId = () => 'tab-' + Date.now().toString(36) + '-' + (tabSeq++).toString(36);
 
   let undoStack = [], redoStack = [];
   let historyBefore = null;     // snapshot taken at start of an interaction
@@ -829,21 +870,53 @@
     return used;
   }
   function referencedAssets(){ return assetsUsedBy(items, assets); }
+  const VALID_TOOLS = new Set(['select','pen','marker','brush','eraser','line','arrow','rect','ellipse','polygon','shape','text','table']);
+  // Same tolerant-of-garbage spirit as normalizeItem: individually validate each field onto a fresh
+  // defaultUi(), so a corrupted/hand-edited saved doc degrades field-by-field instead of all-or-nothing.
+  function normalizeUi(raw){
+    const out = defaultUi();
+    if(!raw || typeof raw !== 'object') return out;
+    if(VALID_TOOLS.has(raw.tool)) out.tool = raw.tool;
+    if(isColor(raw.color)) out.color = raw.color;
+    if(isNum(raw.size)) out.size = Math.min(60, Math.max(1, raw.size));
+    if(typeof raw.strokeOn === 'boolean') out.strokeOn = raw.strokeOn;
+    if(typeof raw.fill === 'boolean') out.fill = raw.fill;
+    if(isColor(raw.fillColor)) out.fillColor = raw.fillColor;
+    if(isColor(raw.textColor)) out.textColor = raw.textColor;
+    if(typeof raw.fontFamily === 'string' && FONTS[raw.fontFamily]) out.fontFamily = raw.fontFamily;
+    if(isNum(raw.fontSize)) out.fontSize = Math.min(400, Math.max(6, Math.round(raw.fontSize)));
+    if(isNum(raw.tableRows)) out.tableRows = Math.min(100, Math.max(1, Math.round(raw.tableRows)));
+    if(isNum(raw.tableCols)) out.tableCols = Math.min(100, Math.max(1, Math.round(raw.tableCols)));
+    // pendingShape is a live "about to place" reference, never restored across a load
+    if(raw.text && typeof raw.text === 'object'){
+      if(isColor(raw.text.color)) out.text.color = raw.text.color;
+      if(isNum(raw.text.size)) out.text.size = Math.min(60, Math.max(1, raw.text.size));
+      if(typeof raw.text.strokeOn === 'boolean') out.text.strokeOn = raw.text.strokeOn;
+      if(typeof raw.text.fill === 'boolean') out.text.fill = raw.text.fill;
+      if(isColor(raw.text.fillColor)) out.text.fillColor = raw.text.fillColor;
+    }
+    return out;
+  }
   function save(){
-    try{ localStorage.setItem(STORE_KEY, JSON.stringify({version:FORMAT_VERSION, items, assets:referencedAssets()})); }
+    if(!activeTabId) return;
+    try{ localStorage.setItem(docKey(activeTabId), JSON.stringify({version:FORMAT_VERSION, items, assets:referencedAssets(), ui})); }
     catch(e){
       console.warn('Could not save sketch:', e);
       toast('Sketch too large to auto-save (try fewer/smaller images)');
     }
   }
   function load(){
+    ui = defaultUi();
+    for(const k in assets) delete assets[k];
     try{
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = localStorage.getItem(docKey(activeTabId));
       if(!raw) return;
       const d = JSON.parse(raw);
       const scene = normalizeScene(Array.isArray(d) ? d : (d && d.items), d && d.assets, d && d.version);   // legacy format = items only
       items = scene.items;
       Object.assign(assets, scene.assets);
+      if(d && d.ui && typeof d.ui === 'object') ui = normalizeUi(d.ui);
+      else ui.tool = items.length ? 'select' : 'pen';   // no persisted ui at all — same heuristic the old boot sequence used
       const note = sceneLoadNote(scene);
       if(note) setTimeout(()=>toast('Restored sketch: ' + note), 300);
     }catch(e){ console.warn('Could not load sketch:', e); }
@@ -2833,6 +2906,8 @@
     endDrag=null; snapPt=null; snapCursorPt=null; nudging=false;
     editingAnchor=null; pointEditIdx=null; activeAnchor=null;
     if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
+    if(alignClickTimer){ clearTimeout(alignClickTimer); alignClickTimer=null; }
+    clickCycle=null; polygonClosedByClickAt=-Infinity; lastTap=null; lastTouchEndForZoom=null;
     historyBefore=null;
   }
   // undo/redo keep the selection (so a recolor can be undone and redone while the item stays
@@ -3467,6 +3542,7 @@
     document.getElementById('libraryDialogTitle').textContent = options.title;
     document.getElementById('libraryDialogMessage').textContent = options.message;
     document.getElementById('libraryNameField').hidden = options.name===undefined;
+    document.querySelector('#libraryNameField label').textContent = options.label || 'Shape name';
     document.getElementById('libraryDialogError').textContent = '';
     libraryNameInput.removeAttribute('aria-invalid');
     libraryNameInput.value = options.name || '';
@@ -3985,6 +4061,7 @@
   const MENU_ACTIONS = {
     save: exportProject,
     open: ()=>projectInput.click(),
+    newTab: newTab,
     png: savePng,
     svg: saveSvg,
     print: ()=>window.print(),
@@ -4289,6 +4366,145 @@
   new MutationObserver(tidySeps).observe(toolbarEl, {attributes:true, subtree:true, attributeFilter:['style']});
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) save(); });
 
+  // ---------- tabs (multiple independent documents) ----------
+  const tabbar = document.getElementById('tabbar');
+  const tabbarScroll = document.getElementById('tabbarScroll');
+
+  function saveTabList(){
+    try{ localStorage.setItem(TABS_KEY, JSON.stringify({version:1, tabs, activeId:activeTabId})); }
+    catch(e){ console.warn('Could not save tab list:', e); }
+  }
+  function loadTabList(){
+    try{
+      const raw = localStorage.getItem(TABS_KEY);
+      if(raw){
+        const d = JSON.parse(raw);
+        if(d && Array.isArray(d.tabs)){
+          const clean = d.tabs.filter(t=>t && typeof t.id==='string' && typeof t.name==='string');
+          if(clean.length){
+            tabs = clean;
+            activeTabId = tabs.some(t=>t.id===d.activeId) ? d.activeId : tabs[0].id;
+            return;
+          }
+        }
+      }
+    }catch(e){ console.warn('Could not load tab list:', e); }
+    // no (valid) tab list yet — start with exactly one tab, migrating the old single-document save if any
+    const id = newTabId();
+    tabs = [{id, name:'Sketch 1'}];
+    activeTabId = id;
+    const legacyRaw = localStorage.getItem(LEGACY_STORE_KEY);
+    if(legacyRaw){
+      try{ localStorage.setItem(docKey(id), legacyRaw); localStorage.removeItem(LEGACY_STORE_KEY); }
+      catch(e){ console.warn('Could not migrate legacy sketch:', e); }
+    }
+    saveTabList();
+  }
+
+  // Swaps every module-level document variable to the given tab's saved state and re-renders —
+  // the same "reassign the globals, then render" pattern undo()/redo()/importProject() already use,
+  // just parameterized by tab instead of by history entry / opened file.
+  function enterTab(tabId){
+    activeTabId = tabId;
+    items = [];
+    for(const k in assets) delete assets[k];
+    const h = tabHistories.get(tabId);
+    undoStack = h ? h.undoStack : [];
+    redoStack = h ? h.redoStack : [];
+    historyBefore = null;
+    selection = [];
+    load();
+    setTool(ui.tool);
+    refreshColorUI();
+    updateButtons();
+    renderTabs();
+  }
+
+  // persists the currently-active tab (content to localStorage, history into the in-memory cache)
+  // before something else replaces it as the active document
+  function flushActiveTab(){
+    if(!activeTabId) return;
+    save();
+    tabHistories.set(activeTabId, {undoStack, redoStack});
+  }
+
+  function activateTab(tabId){
+    if(tabId===activeTabId || !tabs.some(t=>t.id===tabId)) return;
+    if(textInput.style.display==='block') commitText();
+    cancelGesture();
+    flushActiveTab();
+    enterTab(tabId);
+    saveTabList();
+  }
+
+  function newTab(){
+    if(textInput.style.display==='block') commitText();
+    cancelGesture();
+    flushActiveTab();
+    const id = newTabId();
+    tabs.push({id, name:'Sketch ' + (tabs.length+1)});
+    enterTab(id);
+    saveTabList();
+    save();
+  }
+
+  function closeTab(tabId){
+    const idx = tabs.findIndex(t=>t.id===tabId);
+    if(idx<0) return;
+    if(tabs.length===1){ toast('Can’t close the last tab'); return; }
+    // commit any in-progress text on the tab being closed BEFORE judging whether it has content —
+    // otherwise a just-finished text box could be silently deleted without ever asking to confirm
+    if(tabId===activeTabId && textInput.style.display==='block') commitText();
+    const hasContent = tabId===activeTabId ? items.length>0 : !!localStorage.getItem(docKey(tabId));
+    if(hasContent && !confirm('Close "'+tabs[idx].name+'"? Its content will be deleted.')) return;
+    cancelGesture();
+    localStorage.removeItem(docKey(tabId));
+    tabHistories.delete(tabId);
+    tabs.splice(idx,1);
+    if(tabId===activeTabId){
+      activeTabId = null;   // the closed tab is gone, not backgrounded — nothing to save() for it
+      enterTab(tabs[Math.min(idx, tabs.length-1)].id);
+    }
+    saveTabList();
+    renderTabs();
+  }
+
+  async function renameTab(tabId){
+    const tab = tabs.find(t=>t.id===tabId);
+    if(!tab) return;
+    const name = await askLibrary({ title:'Rename tab', message:'Choose a name for this tab.',
+      name:tab.name, submit:'Rename', label:'Tab name', validate:v=>v.trim()?'':'Name can’t be empty' });
+    if(name===null) return;
+    const trimmed = name.trim();
+    if(!trimmed || trimmed===tab.name) return;
+    tab.name = trimmed;
+    saveTabList();
+    renderTabs();
+  }
+
+  function renderTabs(){
+    tabbar.hidden = tabs.length < 2;   // a single tab needs no bar at all
+    tabbarScroll.innerHTML = '';
+    for(const tab of tabs){
+      const row = document.createElement('div');
+      row.className = 'tab'; row.setAttribute('role','tab'); row.dataset.tabId = tab.id;
+      row.setAttribute('aria-selected', tab.id===activeTabId ? 'true' : 'false');
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button'; selectBtn.className = 'tab-select' + (tab.id===activeTabId ? ' active' : '');
+      selectBtn.textContent = tab.name; selectBtn.title = tab.name;
+      selectBtn.addEventListener('click', ()=>activateTab(tab.id));
+      selectBtn.addEventListener('dblclick', ()=>renameTab(tab.id));
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button'; closeBtn.className = 'tab-close';
+      closeBtn.setAttribute('aria-label', 'Close '+tab.name+' tab');
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', e=>{ e.stopPropagation(); closeTab(tab.id); });
+      row.append(selectBtn, closeBtn);
+      tabbarScroll.appendChild(row);
+    }
+    resize();   // the tab bar's own height may have changed (shown/hidden, wrapped, grew/shrank) — re-measure the stage
+  }
+
   // ---------- boot ----------
   // show the platform's own modifier in shortcut hints (⌘ on Mac, Ctrl elsewhere)
   const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || '');
@@ -4304,11 +4520,8 @@
   // icons are decorative; the buttons' titles carry the meaning
   document.querySelectorAll('.toolbar svg').forEach(s=>s.setAttribute('aria-hidden','true'));
 
-  load();
-  setTool(items.length ? 'select' : 'pen');
-  refreshColorUI();
-  resize();
-  updateButtons();
+  loadTabList();
+  enterTab(activeTabId);
   tidySeps();
 
   updateShapeLibraryUI();
