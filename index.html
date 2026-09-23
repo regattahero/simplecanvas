@@ -160,6 +160,10 @@
   .library-dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
   .library-dialog-actions button{padding:8px 13px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
   .library-dialog-actions .primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tab-picker-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow:auto;margin:10px 0}
+  .tab-picker-list button{text-align:left;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+  .tab-picker-list button:hover{background:#f3f4f6}
 
   /* stroke/fill color popovers: swatches only, no text — keeps the toolbar compact */
   .color-picker{min-width:0;padding:8px;flex-direction:row;flex-wrap:wrap;width:132px;gap:6px}
@@ -319,6 +323,15 @@
       <button data-act="open" role="menuitem">
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H3V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10h18l-2 8a1 1 0 0 1-1 .8H6a1 1 0 0 1-1-.8L3 10Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         Open sketch… <span class="sc">⌘O</span>
+      </button>
+      <div class="menu-sep" role="separator"></div>
+      <button data-act="saveWorkspace" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 3v5h6V3M7 21v-6h10v6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        Save workspace…
+      </button>
+      <button data-act="openWorkspace" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1H3V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10h18l-2 8a1 1 0 0 1-1 .8H6a1 1 0 0 1-1-.8L3 10Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        Open workspace…
       </button>
       <button data-act="newTab" role="menuitem">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -582,6 +595,12 @@
     <p class="dialog-error" id="libraryDialogError" role="alert"></p>
     <div class="library-dialog-actions"><button type="button" id="libraryDialogCancel">Cancel</button><button type="submit" class="primary" id="libraryDialogSubmit">Add shape</button></div>
   </form>
+</dialog>
+<dialog class="library-dialog" id="tabPickerDialog" aria-labelledby="tabPickerTitle">
+  <h2 id="tabPickerTitle">Open sketch from workspace</h2>
+  <p>This file contains several sketches — pick one to open.</p>
+  <div class="tab-picker-list" id="tabPickerList"></div>
+  <div class="library-dialog-actions"><button type="button" id="tabPickerCancel">Cancel</button></div>
 </dialog>
 
 <script>
@@ -1007,25 +1026,27 @@
   // Greedy word-wrap to fit maxWidth — ctx.font must already be set. A single word wider than
   // maxWidth on its own still gets broken, at the character level, so it never silently overflows.
   function wrapTextToWidth(text, maxWidth){
-    const words = text.split(' ');
-    const rough = [];
-    let line = '';
-    for(const word of words){
-      const test = line ? line + ' ' + word : word;
-      if(!line || ctx.measureText(test).width <= maxWidth) line = test;
-      else { rough.push(line); line = word; }
-    }
-    rough.push(line);
     const lines = [];
-    for(const l of rough){
-      if(ctx.measureText(l).width <= maxWidth){ lines.push(l); continue; }
-      let chunk = '';
-      for(const ch of l){
-        const t2 = chunk + ch;
-        if(chunk && ctx.measureText(t2).width > maxWidth){ lines.push(chunk); chunk = ch; }
-        else chunk = t2;
+    for(const paragraph of text.split('\n')){   // a hard break (Shift+Enter) always starts a new line
+      const words = paragraph.split(' ');
+      const rough = [];
+      let line = '';
+      for(const word of words){
+        const test = line ? line + ' ' + word : word;
+        if(!line || ctx.measureText(test).width <= maxWidth) line = test;
+        else { rough.push(line); line = word; }
       }
-      if(chunk) lines.push(chunk);
+      rough.push(line);
+      for(const l of rough){
+        if(ctx.measureText(l).width <= maxWidth){ lines.push(l); continue; }
+        let chunk = '';
+        for(const ch of l){
+          const t2 = chunk + ch;
+          if(chunk && ctx.measureText(t2).width > maxWidth){ lines.push(chunk); chunk = ch; }
+          else chunk = t2;
+        }
+        if(chunk) lines.push(chunk);
+      }
     }
     return lines.length ? lines : [''];
   }
@@ -2280,7 +2301,9 @@
         // curve's local shape at this point is unchanged, only its position. Recomputed fresh each
         // frame as a total offset from the point's own pristine (pre-drag) position — same
         // dead-zone-then-lock axis convention as the whole-item `drag` — rather than accumulating
-        // raw per-frame deltas, so Shift can constrain it to horizontal/vertical.
+        // raw per-frame deltas, so Shift can constrain it to horizontal/vertical. (Deliberately just
+        // 2-way, not the 8-way diagonal snap used for placing a new polygon corner — tried the same
+        // 8-way snap here too, but it made small point nudges fiddly in practice; reverted.)
         const lp1 = toLocal(it, x, y);
         const rawDx = lp1.x-editingAnchor.startX, rawDy = lp1.y-editingAnchor.startY;
         let targetDx = rawDx, targetDy = rawDy;
@@ -2454,11 +2477,12 @@
     } else if(current.type==='polygon'){
       const h = snapToPolygonStart(current.points, x, y);   // rubber-band edge to the pointer, snapped to the start point when close enough to close
       let hx = h.x, hy = h.y;
-      // Shift constrains the NEXT point to be exactly horizontal or vertical from the last one placed
-      // — closing the polygon (above) always wins over this when both would apply.
+      // Shift constrains the NEXT point to the nearest 45° direction from the last one placed (same
+      // 8-way snap as constrainAngle uses for line/arrow endpoints) — closing the polygon (above)
+      // always wins over this when both would apply.
       if(!h.snapped && e.shiftKey && current.points.length){
         const last = current.points[current.points.length-1];
-        if(Math.abs(hx-last.x) >= Math.abs(hy-last.y)) hy = last.y; else hx = last.x;
+        ({x:hx, y:hy} = constrainAngle(last.x, last.y, hx, hy));
       }
       current._hover = {x:hx, y:hy}; current._snapped = h.snapped;
     }
@@ -2665,7 +2689,10 @@
   // line instead — same idea, the other axis.)
   function fitTextInputSize(){
     if(!textBox) return;
-    if(/[\r\n]/.test(textInput.value)) textInput.value = textInput.value.replace(/[\r\n]+/g, ' ');   // this was always a single logical line; a paste is the only way a real newline could sneak in
+    // hard line breaks (Shift+Enter, or pasted multi-line text) are kept as real newlines and wrapped
+    // paragraph-by-paragraph by wrapTextToWidth() — just normalize \r\n/\r to a bare \n so every
+    // source (typed, pasted, loaded from an old file) uses one consistent line-break character.
+    if(/\r/.test(textInput.value)) textInput.value = textInput.value.replace(/\r\n?/g, '\n');
     textInput.style.width = textBox.w+'px';
     textInput.style.left = textBox.x+'px';
     ctx.save(); ctx.font = textInput.style.font;
@@ -2775,7 +2802,10 @@
   textInput.addEventListener('keydown', e=>{
     // Both keys finish editing by keeping what was typed — same outcome as clicking away (blur)
     // already does; there's deliberately no keyboard way to discard an edit back to the old text.
-    if(e.key==='Enter'){ e.preventDefault(); commitText(); }
+    // Shift+Enter is the one exception: it inserts a hard line break instead (the textarea's own
+    // native behavior — don't preventDefault, just let it happen), so plain Enter stays the "done"
+    // key while Shift+Enter is "new line", matching every other multi-line text field's convention.
+    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); commitText(); }
     else if(e.key==='Escape'){ e.preventDefault(); commitText(); }
     e.stopPropagation();
   });
@@ -2817,11 +2847,11 @@
     // Closing on a click/tap here is a distinct user action, not "place a corner" — even a genuine
     // double-click/double-tap on this same spot must not also place one afterward (see onDoubleClick).
     if(h.snapped){ polygonClosedByClickAt = performance.now(); finishPolygon(); return; }
-    // Shift constrains the new corner to be exactly horizontal or vertical from the last one placed —
-    // matches the rubber-band preview (onMove), so the point actually lands where it was previewed.
+    // Shift constrains the new corner to the nearest 45° direction from the last one placed — matches
+    // the rubber-band preview (onMove), so the point actually lands where it was previewed.
     if(shiftKey && pts.length){
       const last = pts[pts.length-1];
-      if(Math.abs(x-last.x) >= Math.abs(y-last.y)) y = last.y; else x = last.x;
+      ({x, y} = constrainAngle(last.x, last.y, x, y));
     }
     pts.push({x,y});
     polyDraft._hover = null; polyDraft._snapped = false;
@@ -3377,32 +3407,139 @@
     URL.revokeObjectURL(url);
     toast('Sketch saved to file');
   }
-  function importProject(file){
+  // Every open tab into one file — the active tab's live state plus every other (backgrounded) tab's
+  // own already-current localStorage doc (a backgrounded tab can never go stale: you can't edit two
+  // tabs at once, and flushActiveTab() persists the outgoing tab on every switch).
+  function exportWorkspace(){
+    save();
+    const tabEntries = tabs.map(t=>{
+      if(t.id === activeTabId) return { name: t.name, items, assets: referencedAssets(), ui };
+      try{
+        const raw = localStorage.getItem(docKey(t.id));
+        const d = raw ? JSON.parse(raw) : null;
+        return { name: t.name, items: (d && d.items) || [], assets: (d && d.assets) || {}, ui: (d && d.ui) || null };
+      }catch(e){
+        console.warn('Could not read tab for export:', t.id, e);
+        return { name: t.name, items: [], assets: {}, ui: null };   // one bad doc shouldn't abort the whole export
+      }
+    });
+    const data = {
+      app: 'SimpleCanvasWorkspace',
+      version: FORMAT_VERSION,
+      savedAt: new Date().toISOString(),
+      tabs: tabEntries,
+      activeIndex: Math.max(0, tabs.findIndex(t=>t.id===activeTabId))
+    };
+    downloadJSON('workspace-' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.json', data);
+    toast('Workspace saved to file');
+  }
+  // Reads either file shape (a single sketch, or a whole workspace) into one normalized list of
+  // {name, items, assets, ui} entries — shared by "Open Workspace…" (replaces every open tab) and
+  // "Import Sketch…" (adds new tabs), which differ only in what they DO with this list, not in how
+  // a file is parsed. `ui` is left null for a plain single-sketch entry (that file shape never has
+  // one), so load()'s own existing "select vs pen" fallback applies exactly as it already does today.
+  function parseFileAsTabs(data){
+    if(data && data.app === 'SimpleCanvasWorkspace' && Array.isArray(data.tabs)){
+      const normalized = [];
+      for(const rt of data.tabs){
+        if(!rt || typeof rt !== 'object') continue;
+        const scene = normalizeScene(rt.items, rt.assets, data.version);
+        normalized.push({ name: (typeof rt.name==='string' && rt.name.trim()) || 'Sketch ' + (normalized.length+1),
+                           items: scene.items, assets: scene.assets, ui: normalizeUi(rt.ui) });
+      }
+      return { entries: normalized, activeIndex: data.activeIndex };
+    }
+    if(data && data.app === 'SimpleCanvas' && Array.isArray(data.items)){
+      const scene = normalizeScene(data.items, data.assets, data.version);
+      return { entries: [{ name:null, items:scene.items, assets:scene.assets, ui:null }], activeIndex: 0 };
+    }
+    return null;   // not a recognized SimpleCanvas file
+  }
+  // "Open Workspace…" — accepts either a workspace or a single-sketch file, always REPLACES the
+  // whole current set of open tabs (a picked single-sketch file becomes the one resulting tab).
+  function openWorkspaceFile(file){
     const r = new FileReader();
     r.onload = ()=>{
       let data;
       try { data = JSON.parse(r.result); }
       catch(e){ toast('Not a valid sketch file'); return; }
-      if(!data || data.app !== 'SimpleCanvas' || !Array.isArray(data.items)){
-        toast('That is not a SimpleCanvas file'); return;
-      }
       if(typeof data.version === 'number' && data.version > FORMAT_VERSION &&
          !confirm('This file was saved by a newer version ('+data.version+'). Open it anyway?')) return;
-      const scene = normalizeScene(data.items, data.assets, data.version);   // validated before live state is touched
-      if(!scene.items.length && data.items.length){ toast('No readable objects in that file'); return; }
-      if(items.length && !confirm('Replace the current sketch with the opened file?')) return;
+      const parsed = parseFileAsTabs(data);
+      if(!parsed || !parsed.entries.length){ toast(parsed ? 'No readable tabs in that file' : 'That is not a SimpleCanvas file'); return; }
+
+      const hasExistingContent = items.length > 0 ||
+        tabs.some(t => t.id !== activeTabId && !!localStorage.getItem(docKey(t.id)));
+      if(hasExistingContent && !confirm('Replace all ' + tabs.length + ' open tab' + (tabs.length===1?'':'s') + ' with this file?')) return;
+
+      if(textInput.style.display==='block') commitText();
       cancelGesture();
-      beginHistory();
-      items = scene.items;
-      Object.assign(assets, scene.assets);
-      selection = [];
-      commitHistory();
-      render();
-      const note = sceneLoadNote(scene);
-      toast(note ? 'Sketch loaded (' + note + ')' : 'Sketch loaded');
+      for(const t of tabs) localStorage.removeItem(docKey(t.id));
+      tabHistories.clear();   // every old undo/redo stack belongs to a tab id about to stop existing
+
+      const newTabs = parsed.entries.map(nt=>{
+        const id = newTabId();   // always mint fresh ids -- never trust ids from the file
+        try{ localStorage.setItem(docKey(id), JSON.stringify({version:FORMAT_VERSION, items:nt.items, assets:nt.assets, ui:nt.ui})); }
+        catch(e){ console.warn('Could not persist imported tab:', id, e); }
+        return {id, name: nt.name || 'Sketch 1'};
+      });
+
+      tabs = newTabs;
+      const activeIdx = Number.isInteger(parsed.activeIndex) && parsed.activeIndex>=0 && parsed.activeIndex<newTabs.length ? parsed.activeIndex : 0;
+      enterTab(newTabs[activeIdx].id);
+      saveTabList();
+      toast(newTabs.length>1 ? ('Workspace opened (' + newTabs.length + ' tabs)') : 'Sketch opened');
     };
     r.onerror = ()=>toast('Could not read that file');
     r.readAsText(file);
+  }
+  // "Open sketch…" — operates on the active tab only, exactly like before the multi-tab feature
+  // existed: undoable (via beginHistory/commitHistory), confirms only if the active tab has content.
+  // If accidentally given a WORKSPACE file (several sketches) instead, offers a small picker dialog
+  // to choose which one to open, rather than a flat rejection.
+  function importProject(file){
+    const r = new FileReader();
+    r.onload = async ()=>{
+      let data;
+      try { data = JSON.parse(r.result); }
+      catch(e){ toast('Not a valid sketch file'); return; }
+      if(typeof data.version === 'number' && data.version > FORMAT_VERSION &&
+         !confirm('This file was saved by a newer version ('+data.version+'). Open it anyway?')) return;
+
+      if(data && data.app === 'SimpleCanvasWorkspace' && Array.isArray(data.tabs)){
+        const parsed = parseFileAsTabs(data);
+        if(!parsed || !parsed.entries.length){ toast('No readable tabs in that file'); return; }
+        // Always shown, even for a single-entry workspace file (a toast alone wasn't noticeable enough
+        // to flag "you opened a workspace file, not a plain sketch" -- the dialog, even with only one
+        // option, makes that unambiguous).
+        const chosen = await askTabPicker(parsed.entries);   // null if cancelled
+        if(!chosen) return;
+        applySketchToActiveTab(chosen.items, chosen.assets);
+        return;
+      }
+      if(!data || data.app !== 'SimpleCanvas' || !Array.isArray(data.items)){
+        toast('That is not a SimpleCanvas file'); return;
+      }
+      const scene = normalizeScene(data.items, data.assets, data.version);
+      if(!scene.items.length && data.items.length){ toast('No readable objects in that file'); return; }
+      applySketchToActiveTab(scene.items, scene.assets);
+    };
+    r.onerror = ()=>toast('Could not read that file');
+    r.readAsText(file);
+  }
+  // Shared by the plain single-sketch path and the tab-picker's chosen entry — the original
+  // (pre-multi-tab) importProject's own mutation: undoable, only ever touches the active tab, never
+  // creates or removes a tab (an empty active tab needs no confirm — nothing to lose).
+  function applySketchToActiveTab(newItems, newAssets){
+    if(items.length && !confirm('Replace the current sketch with the opened file?')) return;
+    cancelGesture();
+    beginHistory();
+    items = newItems;
+    Object.assign(assets, newAssets);
+    selection = [];
+    commitHistory();
+    render();
+    toast('Sketch opened');
   }
 
   // ---------- toolbar wiring ----------
@@ -3570,6 +3707,36 @@
   libraryDialog.addEventListener('cancel', e=>{ e.preventDefault(); finishLibraryQuestion(null); });
   libraryDialog.addEventListener('click', e=>e.stopPropagation());
   libraryDialog.addEventListener('keydown', e=>e.stopPropagation());
+
+  // Small picker dialog: lets the user choose one sketch out of a workspace file's several, when
+  // "Open sketch…" (which only ever targets the active tab) is accidentally given one.
+  const tabPickerDialog = document.getElementById('tabPickerDialog');
+  let tabPickerQuestion = null;
+  function finishTabPicker(value){
+    const pending = tabPickerQuestion;
+    tabPickerQuestion = null;
+    tabPickerDialog.close();
+    if(pending) pending.resolve(value);
+  }
+  function askTabPicker(entries){
+    const list = document.getElementById('tabPickerList');
+    list.innerHTML = '';
+    entries.forEach(entry=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = entry.name + ' (' + entry.items.length + ' object' + (entry.items.length===1?'':'s') + ')';
+      btn.addEventListener('click', ()=>finishTabPicker(entry));
+      list.appendChild(btn);
+    });
+    return new Promise(resolve=>{
+      tabPickerQuestion = { resolve };
+      tabPickerDialog.showModal();
+    });
+  }
+  document.getElementById('tabPickerCancel').addEventListener('click', ()=>finishTabPicker(null));
+  tabPickerDialog.addEventListener('cancel', e=>{ e.preventDefault(); finishTabPicker(null); });
+  tabPickerDialog.addEventListener('click', e=>e.stopPropagation());
+  tabPickerDialog.addEventListener('keydown', e=>e.stopPropagation());
 
   function updateShapeLibraryUI(){
     const count = shapeLibrary ? shapeLibrary.shapes.length : 0;
@@ -4058,9 +4225,12 @@
   const projectInput = document.getElementById('projectInput');
   const menuBtn = document.getElementById('menuBtn');
   const menu = document.getElementById('menu');
+  let pendingFileAction = null;   // 'open' | 'openWorkspace' -- which menu action opened the file picker
   const MENU_ACTIONS = {
     save: exportProject,
-    open: ()=>projectInput.click(),
+    open: ()=>{ pendingFileAction='open'; projectInput.click(); },
+    saveWorkspace: exportWorkspace,
+    openWorkspace: ()=>{ pendingFileAction='openWorkspace'; projectInput.click(); },
     newTab: newTab,
     png: savePng,
     svg: saveSvg,
@@ -4099,7 +4269,12 @@
     const fn = MENU_ACTIONS[b.dataset.act]; if(fn) fn();
   });
   document.addEventListener('click', e=>{ if(!menu.hidden && !menu.contains(e.target) && e.target!==menuBtn) setMenu(false); });
-  projectInput.addEventListener('change', e=>{ if(e.target.files[0]) importProject(e.target.files[0]); e.target.value=''; });
+  projectInput.addEventListener('change', e=>{
+    const file = e.target.files[0]; e.target.value = '';
+    if(!file) return;
+    if(pendingFileAction === 'openWorkspace') openWorkspaceFile(file);
+    else importProject(file);
+  });
 
   // image insert / paste / drop
   const fileInput = document.getElementById('fileInput');
@@ -4165,7 +4340,7 @@
     if(mod && e.key.toLowerCase()==='d'){ e.preventDefault(); duplicateSelection(); return; }
     if(mod && e.key.toLowerCase()==='g'){ e.preventDefault(); e.shiftKey?ungroupSelection():groupSelection(); return; }
     if(mod && e.key.toLowerCase()==='s'){ e.preventDefault(); exportProject(); return; }
-    if(mod && e.key.toLowerCase()==='o'){ e.preventDefault(); projectInput.click(); return; }
+    if(mod && e.key.toLowerCase()==='o'){ e.preventDefault(); pendingFileAction='open'; projectInput.click(); return; }
     if(mod) return;
     if(e.key==='Delete' || e.key==='Backspace'){ e.preventDefault(); deleteSelected(); return; }
     if(e.key===']'){ bringToFront(); return; }
