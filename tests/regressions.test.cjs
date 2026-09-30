@@ -10,6 +10,10 @@ assert.ok(['chromium','webkit'].includes(engine), 'BROWSER_ENGINE must be chromi
 // geometry, persistence, event handlers, and rendering all remain production code.
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')
   .replace('\n})();', '\nwindow.__test = {run: source => eval(source)};\n})();');
+// The Drill smart-shape script lives entirely outside the app (examples/drill-template.js, meant
+// to be pasted by hand into the Script field) -- read it here rather than expecting it as an
+// app-global, matching how an actual user would supply it.
+const DRILL_SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'examples', 'drill-template.js'), 'utf8');
 let browser;
 before(async () => {
   browser = await ({chromium,webkit}[engine]).launch({headless:true,
@@ -935,3 +939,103 @@ test('ungrouped text/table still open their own editor on the very first double-
   assert.deepEqual(await run('JSON.stringify({editingGroupId,editingTextIdx})'),
     JSON.stringify({editingGroupId:null,editingTextIdx:0}));
 }));
+
+// ---------- smart-object script: Drill (a 4-hole square drilling template, sized in real mm) ----------
+// Not wired into the template picker (see the dedicated test below) -- exists only as a script
+// constant, tested directly via compileSmartScript() the same way a user would after pasting it in.
+test('Drill script: holes sit inset from the frame (not on it), and resize scales the actual reported spacing', async () => app(async ({page,run}) => {
+  const MM = 96/25.4;
+  const geom = (w,h,st) => {
+    const r = Math.max(1,st.holeDiameterMm)*MM/2;
+    const margin = Math.min(w,h)*0.15;
+    const spacing = Math.max(1, Math.min(w,h) - margin*2), half = spacing/2;
+    let ccx = w/2+st.offsetXmm*MM, ccy = h/2+st.offsetYmm*MM;
+    ccx = Math.max(half+r, Math.min(w-half-r, ccx));
+    ccy = Math.max(half+r, Math.min(h-half-r, ccy));
+    return {r, margin, spacing, half, ccx, ccy};
+  };
+  const st0 = {holeDiameterMm:6, offsetXmm:0, offsetYmm:0};
+  const styleArg = {color:'#000',textColor:'#000',size:2,strokeOn:false,fill:false,fillColor:'#fff',font:'12px Arial'};
+
+  const kids = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).children(${JSON.stringify(st0)}, ${JSON.stringify(styleArg)}, 151, 151)`);
+  const holes = kids.filter(k=>k.type==='ellipse');
+  assert.equal(holes.length, 4, 'four drill holes');
+  const g = geom(151,151,st0);
+  for(const h of holes) assert.ok(Math.abs(h.w-g.r*2)<0.01 && Math.abs(h.h-g.r*2)<0.01, 'each hole\'s diameter is exactly 6mm converted to px');
+  const round2 = n => Math.round(n*100)/100;
+  const corners = holes.map(h=>({x:round2(h.x+g.r), y:round2(h.y+g.r)})).sort((a,b)=>a.x-b.x||a.y-b.y);
+  const lo = round2(g.ccx-g.half), hi = round2(g.ccx+g.half);
+  assert.deepEqual(corners, [{x:lo,y:lo},{x:lo,y:hi},{x:hi,y:lo},{x:hi,y:hi}], 'hole centers sit inset from the frame by the fixed margin, not on it');
+  assert.ok(lo > 1, 'holes are genuinely inset from the top/left edge, not touching it');
+
+  // the live label reads the ACTUAL hole spacing (post-margin), not the raw container size, and
+  // sits ABOVE the container (negative y) so it can never collide with the square wherever it's
+  // been dragged to.
+  const label = kids.find(k=>k.type==='text' && /spacing$/.test(k.text));
+  assert.equal(label.text, (g.spacing/MM).toFixed(1)+' mm hole spacing');
+  assert.ok(label.y < 0);
+
+  // dragEdit 'dia': clamped to the smaller of half-spacing and the fixed edge margin
+  const dragged = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).dragEdit(${JSON.stringify(st0)}, 'dia', 40, 0, 151, 151)`);
+  assert.ok(dragged.holeDiameterMm > 6, 'dragging outward increases the hole diameter');
+  const clampedSmall = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).dragEdit(${JSON.stringify(st0)}, 'dia', 0.01, 0, 151, 151)`);
+  assert.ok(clampedSmall.holeDiameterMm >= 0.5, 'diameter never clamps below 0.5mm');
+  const clampedBig = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).dragEdit(${JSON.stringify(st0)}, 'dia', 1000, 1000, 151, 151)`);
+  assert.ok(clampedBig.holeDiameterMm*MM/2 <= Math.min(g.half,g.margin)+0.01, 'diameter never grows past the smaller of half-spacing or the edge margin');
+
+  // handles: 'pos' at the square's own center, 'dia' on the top-left hole's own edge -- hitEdit
+  // finds each at its own reported position, and nowhere else
+  const handles = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).handles(${JSON.stringify(st0)}, 151, 151)`);
+  assert.equal(handles.length, 2);
+  const pos = handles.find(h=>h.id==='pos');
+  assert.ok(Math.abs(pos.x-g.ccx)<0.01 && Math.abs(pos.y-g.ccy)<0.01);
+  for(const h of handles){
+    const hit = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).hitEdit(${JSON.stringify(st0)}, ${h.x}, ${h.y}, 151, 151)`);
+    assert.equal(hit, h.id);
+  }
+  const miss = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).hitEdit(${JSON.stringify(st0)}, 0, 0, 151, 151)`);
+  assert.equal(miss, null, 'the container\'s own corner is nowhere near either handle');
+}));
+
+test('Drill script: dragging the "pos" handle repositions the 4-hole square within the container, without touching w/h', async () => app(async ({page,run}) => {
+  const MM = 96/25.4;
+  const st0 = {holeDiameterMm:6, offsetXmm:0, offsetYmm:0};
+  const before = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).handles(${JSON.stringify(st0)}, 151, 151)`);
+  const posBefore = before.find(h=>h.id==='pos');
+
+  // A small move (well within the ~3mm of slack the default 151x151/6mm-hole setup actually has --
+  // margin(22.65px) minus hole radius(11.34px) -- so it lands unclamped, a genuine "moved exactly
+  // this much" check rather than the clamped one below.
+  const dragged = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).dragEdit(${JSON.stringify(st0)}, 'pos',
+    ${151/2 + 2*MM}, ${151/2 + 1*MM}, 151, 151)`);
+  assert.equal(dragged.offsetXmm, 2);
+  assert.equal(dragged.offsetYmm, 1);
+
+  const after = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).handles(${JSON.stringify(dragged)}, 151, 151)`);
+  const posAfter = after.find(h=>h.id==='pos');
+  assert.ok(Math.abs((posAfter.x-posBefore.x) - 2*MM) < 0.01, 'the square moved exactly 2mm right');
+  assert.ok(Math.abs((posAfter.y-posBefore.y) - 1*MM) < 0.01, 'the square moved exactly 1mm down');
+
+  // dragging far past any valid position clamps the square so every hole stays fully inside the
+  // container -- w/h themselves are just the two numbers passed in, never mutated by this at all
+  const draggedFar = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).dragEdit(${JSON.stringify(st0)}, 'pos', 1000, 1000, 151, 151)`);
+  const farHandles = await run(`compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).handles(${JSON.stringify(draggedFar)}, 151, 151)`);
+  const farPos = farHandles.find(h=>h.id==='pos'), farDia = farHandles.find(h=>h.id==='dia');
+  const r = 6*MM/2;
+  assert.ok(farPos.x <= 151-r+0.01 && farPos.y <= 151-r+0.01, 'the square is pulled back so its holes stay fully inside the 151x151 container');
+  assert.ok(farDia.x >= 0-0.01 && farDia.y >= 0-0.01, 'the top-left hole handle also stays inside');
+}));
+
+test('Drill script: works as a placed smart shape via shapeOps, but is deliberately absent from the template picker', async () => app(async ({page,run}) => {
+  assert.equal(await run(`Object.keys(SMART_TEMPLATES).includes('drill')`), false,
+    'not registered as a one-click template');
+  assert.equal(await run(`[...smartTemplateSelect.options].some(o=>o.value==='drill')`), false,
+    'no "Drill" entry in the template dropdown');
+
+  await run(`items=[{type:'smart',uid:'d1',x:100,y:100,w:151,h:151,color:'#1f2937',fillColor:'#ffd166',
+    fill:false,strokeOn:false,textColor:'#1f2937',size:2,fontFamily:'sans',fontSize:12,font:fontStr('sans',12),
+    script:${JSON.stringify(DRILL_SCRIPT)},state:compileSmartScript(${JSON.stringify(DRILL_SCRIPT)}).initState()}];setTool('select');render();`);
+  const ops = await run(`shapeOps(items[0])`);
+  assert.equal(ops.filter(o=>o.kind==='ellipse').length, 4, 'renders the 4 holes via the normal shapeOps pipeline');
+}));
+

@@ -887,6 +887,104 @@ interactive double-click edit mode.
     well-formed. Confirmed via a dedicated check that removing the clamp
     reproduces exactly this — start/end point coordinates computed as
     numerically identical at the unclamped, exact-2π sweep.
+- **`examples/drill-template.js`**, added much later than the other
+  templates (a separate session, well after Chart/Minimal/Blank already
+  existed) — a 4-hole square drilling template ("Bohrschablone") whose
+  whole point is real, physically accurate millimeters, not arbitrary
+  on-screen pixels. **Lives entirely outside `index.html`, as its own
+  standalone file** (explicit two-step request: first "just the script, no
+  integration into the demo-object list" — removed from `SMART_TEMPLATES`/
+  the dropdown but still an in-app `DRILL_EXAMPLE_SCRIPT` constant at that
+  point; then "what's this script doing in the app's own file at all" —
+  it isn't a constant in `index.html` anymore either now, just a plain,
+  independently-pasteable file meant to be copied by hand into the Script
+  field). Confirmed by direct test (`new Function('"use
+  strict";return ('+src+');')()` against the file's own full text,
+  including its leading `//` usage-comment) that the ENTIRE file — not
+  just the object-literal part — can be pasted as-is: a `//` line comment
+  only ever consumes its own physical line, so a multi-line comment block
+  before the real `({...})` expression parses away harmlessly once the
+  app wraps it in `return (...)`, and the real content starts cleanly on
+  its own line after. The Playwright suite reads this file directly
+  (`fs.readFileSync('examples/drill-template.js')`) and feeds its text into
+  `compileSmartScript()` inside the page, exactly mirroring how a real user
+  would supply it by hand — never through the picker UI, and never as an
+  app-global.
+  Grew out of a direct question: could a smart shape specify hole spacing
+  in mm and have it come out correctly 1:1 when printed? Answer, confirmed
+  before writing any code: yes, in principle, since `96px == 1 inch ==
+  25.4mm` is a fixed constant from the CSS/SVG spec itself (not a guess or
+  a per-browser setting) — a script can freely convert mm to px with that
+  one ratio, and this app's existing SVG export already emits unitless px
+  dimensions, which vector programs (Illustrator, Inkscape) already
+  interpret at that same 96dpi convention when printing "actual size." The
+  one genuinely unreliable link in the chain is `window.print()` itself
+  (this app's own **Print** menu item) — the browser/OS print dialog's own
+  scale-to-fit setting is outside the page's control, so nothing here can
+  *guarantee* a browser-printed page is 1:1; only the SVG-export-then-
+  print-elsewhere path can.
+  - **Hole spacing is still NOT a drag-handle state field** — it's the
+    container's own `w`/`h`, resized with the ordinary GENERIC resize
+    handles every item already has (Shift keeps it square) — reusing an
+    existing, already-precise mechanism instead of inventing a new one. A
+    live `"N.N mm hole spacing"` label gives numeric feedback while
+    resizing, since eyeballing raw pixels against a desired mm value isn't
+    practical otherwise.
+  - **Second design pass, explicit follow-up request**: the first version
+    put the 4 holes exactly ON the container's own corners/frame. Changed
+    so the holes sit inset from the frame by a fixed `margin` (`15%` of
+    `Math.min(w,h)`), and — the actual point of the request — the whole
+    4-hole square can be dragged to any position *within* that margin via
+    a new `'pos'` handle (at the square's own center), entirely separate
+    from `'dia'` (hole diameter, on the top-left hole's own edge).
+    Dragging `'pos'` only ever changes `state.offsetXmm`/`offsetYmm` —
+    never the container's own `w`/`h` — matching the request precisely
+    ("move the hole-square within the drawn rectangle, without changing
+    the SmartShape's own size"). Margin is deliberately a flat fraction of
+    the container, independent of the CURRENT hole radius, so growing or
+    shrinking the hole diameter can never secretly change the hole-to-hole
+    spacing — the two stay genuinely independent controls, each with their
+    own handle. A shared `_geom(state,w,h)` helper (same precedent as
+    Timer's own `_layout()`) derives margin/spacing/center once, reused by
+    `children()`/`handles()`/`hitEdit()`/`dragEdit()` so all four can never
+    drift apart — the position clamp inside it (keeping every hole fully
+    inside the container regardless of where `'pos'` was last dragged to)
+    only ever affects the DISPLAYED center, never `state.offsetXmm/Ymm`
+    itself, so shrinking an oversized hole back down always restores
+    whatever position was last genuinely dragged to, rather than losing it.
+  - **The live spacing label moved from inside the container to ABOVE
+    it** (negative `y`) — now that the 4-hole square itself can be dragged
+    anywhere within the container, anchoring the label at the container's
+    own center (as the first version did) would have put it on a collision
+    course with the very thing it's meant to describe. Anchoring it
+    outside the drawn rectangle entirely sidesteps the problem regardless
+    of where the square currently sits.
+  - **A separate fixed-length "10mm" calibration mark was tried and then
+    explicitly dropped again** (a real, if short-lived, design reversal —
+    not something that was always this way). It originally existed
+    specifically because the mm math inside the script can be perfectly
+    correct while the *printed* result still isn't 1:1 (see the
+    `window.print()` caveat above), giving an independently-verifiable
+    reference to catch that after the fact. Removed per explicit follow-up
+    request — the drawn holes themselves, measured directly against a real
+    ruler on the printout, already tell you the same thing the separate
+    mark would have, so the extra mark (and its own layout-collision risk,
+    see the bug below) was redundant.
+  - **Each hole is a circle plus a crosshair**, not just a circle — the
+    crosshair (two short perpendicular lines through the hole's own
+    center) is the standard technical-drawing convention for a precise
+    center-punch/drill mark, independent of whatever the hole's own
+    drawn diameter is.
+  - **Real bug, found via actual use immediately after the first version
+    shipped** (before the margin/position redesign, back when the 10mm
+    mark above still existed): its own label text visually overlapped the
+    bottom-row holes' own crosshair circles, since the holes sat right on
+    the container's own bottom edge at the time. Confirmed via an actual
+    rendered screenshot, not just the geometry math, matching this
+    project's own established practice for visual-only regressions that
+    behavioral tests alone wouldn't catch. Moot now that the mark itself
+    is gone entirely, but the screenshot-verification habit is why it was
+    caught in the first place.
 - **Two real bugs found via the test suite while building this** (not just
   hypothetical — both silently broke the reference clock the first time):
   1. **Style inheritance must NOT blanket-copy `fill`/`fillColor`/
