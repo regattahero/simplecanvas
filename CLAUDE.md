@@ -1297,6 +1297,27 @@ shape. The rewrite below reflects the current, correct design.
   ungroup-while-browsing, and the text/table/smart two/three-stage
   nesting).
 
+### macOS Control+click context-menu fix
+
+Real bug, reported directly (not found via testing): on macOS, holding
+Control and clicking is the OS-wide secondary-click convention — Chrome
+fires a native `contextmenu` event for it regardless of what any
+`mousedown`/`pointerdown` handler does, popping the browser's own image
+context menu (Copy Image/Save Image/Inspect) on top of the canvas. The
+existing `contextmenu` listener already called `e.preventDefault()`, but
+only `if(ui.tool!=='select')` — meaning it was skipped in exactly the one
+mode where this actually bit: **Ctrl+drag duplicates the selection** and
+**Ctrl/Cmd-anchored (center) resize** (both listed above, under
+"Änderungen seit upstream") only ever run in `'select'` mode, so a Mac
+user holding Control to use either feature got the OS's own menu instead.
+`onDown` already unconditionally ignores every non-primary-button press
+(`if(e.button!==undefined && e.button!==0) return;`) — there was never a
+legitimate reason for this app's own canvas to let a right-click/Control-
+click context menu through in any tool, `'select'` included. Fixed by
+calling `e.preventDefault()` unconditionally. Covered by a Playwright test
+that dispatches a real `contextmenu` event at the canvas in both `'select'`
+and a drawing tool, asserting `defaultPrevented` in each.
+
 ## Kept from upstream, worth knowing about
 
 - **UID-based selection** (`ensureUids`, `selectByUids`, `selectedUids`):

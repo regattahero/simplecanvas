@@ -1039,3 +1039,21 @@ test('Drill script: works as a placed smart shape via shapeOps, but is deliberat
   assert.equal(ops.filter(o=>o.kind==='ellipse').length, 4, 'renders the 4 holes via the normal shapeOps pipeline');
 }));
 
+// ---------- contextmenu is always suppressed on the canvas ----------
+// Real bug: on macOS, Control+click is the system-wide secondary-click convention, so Chrome fires
+// a native `contextmenu` event for it regardless of any mousedown/pointerdown handler -- previously
+// only prevented outside 'select' mode, which is exactly the one mode Ctrl+drag-duplicate and
+// Ctrl-anchored-resize (both real, documented features) run in, popping the OS's own image context
+// menu (Copy Image/Save Image/Inspect) in the middle of those gestures.
+test('the canvas never shows the native right-click/Control-click context menu, in any tool', async () => app(async ({page,run}) => {
+  await run(`items=[{type:'rect',uid:'r1',x:100,y:100,w:80,h:60,size:2,color:'#1f2937',strokeOn:true,fill:true,fillColor:'#ffd166'}];setTool('select');render();`);
+  const prevented = tool => run(`(()=>{
+    setTool(${JSON.stringify(tool)});
+    const e = new MouseEvent('contextmenu', {bubbles:true, cancelable:true});
+    canvas.dispatchEvent(e);
+    return e.defaultPrevented;
+  })()`);
+  assert.equal(await prevented('select'), true, 'suppressed in select mode -- the Ctrl+drag/Ctrl-resize case this bug was actually about');
+  assert.equal(await prevented('rect'), true, 'suppressed in a drawing tool too');
+}));
+
