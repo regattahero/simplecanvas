@@ -1514,9 +1514,24 @@ test('hole bridges get no stroke, everything else strokes as before', async () =
   assert.equal(r.svgPaths, 2, 'SVG export follows the same split');
 }));
 
+test('library footer stays below a grid capped at four rows, and hides in Manage', async () => app(async ({page,run}) => {
+  await run(`shapeLibrary = {app:'SimpleCanvasShapeLibrary', version:1, shapes:Array.from({length:20}, (_,k)=>({name:'s'+k,
+    items:[{type:'rect', x:-20, y:-20, w:40, h:40, color:'#000000', size:2, strokeOn:true, fill:false}]}))}; setShapePicker(true)`);
+  const m = JSON.parse(await run(`(()=>{ const g = shapeGrid.getBoundingClientRect(), f = shapePickerFooter.getBoundingClientRect(),
+    e = shapeGrid.querySelector('.shape-entry').getBoundingClientRect();
+    return JSON.stringify({gridH:g.height, rowH:e.height, scrolls:shapeGrid.scrollHeight>shapeGrid.clientHeight,
+      footerBelow:f.top>=g.bottom, footerVisible:!shapePickerFooter.hidden && f.height>0}); })()`));
+  assert.ok(m.scrolls, 'twenty shapes overflow the grid, which scrolls');
+  assert.ok(m.gridH < 5*m.rowH, `grid shows at most four rows (grid ${m.gridH}px, row ${m.rowH}px)`);
+  assert.ok(m.footerBelow && m.footerVisible, 'footer sits under the grid, outside its scroll area');
+  assert.equal(await run(`shapeGrid.querySelectorAll('.shape-entry').length`), 20, 'the grid holds only shapes, no add tiles');
+  await page.click('#manageShapesBtn');
+  assert.equal(await run('shapePickerFooter.hidden'), true, 'Manage has its own actions; footer is hidden');
+}));
+
 test('icon entry points hide while the browser is offline and return when it reconnects', async () => app(async ({run,context}) => {
   const visible = ()=>run(`JSON.stringify({btn: !document.getElementById('addIconBtn').hidden,
-    tile: [...shapeGrid.querySelectorAll('.shape-name')].some(n=>n.textContent==='Icon…')})`).then(JSON.parse);
+    tile: !document.getElementById('addIconFooterBtn').hidden})`).then(JSON.parse);
   await run('renderShapeLibrary()');
   assert.deepEqual(await visible(), {btn:true, tile:true});
   await context.setOffline(true);

@@ -139,7 +139,13 @@
   .shape-grid .shape-thumb{width:100%;height:64px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px;justify-content:center}
   .shape-grid .shape-thumb svg{width:100%;height:100%;display:block}
   .shape-name{display:block;font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .shape-grid:not(.managing) .shape-name{text-align:center}
+  .shape-grid:not(.managing) .shape-name{text-align:center;line-height:16px}
+  /* at most 4 rows of shapes, then the grid scrolls on its own and the footer below stays in view */
+  .shape-grid:not(.managing){grid-auto-rows:86px;max-height:calc(4 * 86px + 3 * 8px);overflow-y:auto;padding-right:4px}
+  .shape-picker-footer{display:flex;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+  .shape-picker-footer[hidden],.shape-picker-footer button[hidden]{display:none}
+  .shape-picker-footer button{flex:1;min-width:0;justify-content:center;gap:6px;border:1px solid var(--line);border-radius:8px;font-size:12px;padding:7px 6px}
+  .shape-picker-footer svg{width:16px;height:16px;flex:none}
   .shape-grid.managing{grid-template-columns:1fr}
   .shape-grid.managing .shape-entry{display:grid;grid-template-columns:54px minmax(0,1fr);gap:4px 8px;border-bottom:1px solid var(--line);padding-bottom:8px}
   .shape-grid.managing .shape-thumb{height:54px;grid-row:span 2}
@@ -446,6 +452,10 @@
         <div class="shape-picker-heading"><strong id="shapePickerLabel">Shape library</strong><button type="button" id="manageShapesBtn" aria-pressed="false">Manage</button></div>
         <div class="shape-library-status" id="shapeLibraryStatus" role="status"></div>
         <div class="shape-grid" id="shapeGrid"></div>
+        <div class="shape-picker-footer" id="shapePickerFooter">
+          <button type="button" id="addSelectionFooterBtn" title="Add the selected canvas objects to the library"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Add selection</button>
+          <button type="button" id="addIconFooterBtn" title="Search Iconify and add an icon to the library"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="5.5" stroke="currentColor" stroke-width="1.8"/><path d="m15 15 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Add icon</button>
+        </div>
         <div id="shapePickerManage">
           <div class="shape-library-help" id="shapeLibraryHelp">Replace uses the selected canvas objects. Library edits do not change placed shapes.</div>
           <div class="shape-library-actions"><button type="button" id="importLibraryBtn">Import…</button><button type="button" id="exportLibraryBtn">Export library…</button></div>
@@ -6703,19 +6713,6 @@ self.onmessage = function(e){
     shapeGrid.appendChild(entry);
   }
 
-  function addAddSelectionTile(){
-    const entry = document.createElement('div');
-    entry.className = 'shape-entry';
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'shape-thumb'; b.title = 'Add selection to library…';
-    b.setAttribute('aria-label', 'Add selection to library');
-    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M12 7.1v9.8M7.1 12h9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-    b.addEventListener('click', addSelectionToLibrary);
-    const label = document.createElement('span');
-    label.className = 'shape-name'; label.textContent = 'Add selection…';
-    entry.append(b, label);
-    shapeGrid.appendChild(entry);
-  }
 
   function renderShapeLibrary(){
     const entries = shapeLibrary ? shapeLibrary.shapes : [];
@@ -6732,24 +6729,14 @@ self.onmessage = function(e){
     // Icon search needs Iconify. navigator.onLine=false reliably means no network at all; true only
     // means "some network", so a LAN without internet still shows the button and the dialog reports it.
     document.getElementById('addIconBtn').hidden = !navigator.onLine;
-    if(!managingShapes){ addAddSelectionTile(); if(navigator.onLine) addAddIconTile(); }
+    document.getElementById('addIconFooterBtn').hidden = !navigator.onLine;
+    document.getElementById('shapePickerFooter').hidden = managingShapes;
   }
+  document.getElementById('addSelectionFooterBtn').addEventListener('click', addSelectionToLibrary);
+  document.getElementById('addIconFooterBtn').addEventListener('click', ()=>openIconDialog());
   window.addEventListener('online', renderShapeLibrary);
   window.addEventListener('offline', renderShapeLibrary);
 
-  function addAddIconTile(){
-    const entry = document.createElement('div');
-    entry.className = 'shape-entry';
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'shape-thumb'; b.title = 'Search and add an icon…';
-    b.setAttribute('aria-label', 'Add icon to library');
-    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="5.5" stroke="currentColor" stroke-width="1.8"/><path d="m15 15 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-    b.addEventListener('click', openIconDialog);
-    const label = document.createElement('span');
-    label.className = 'shape-name'; label.textContent = 'Icon…';
-    entry.append(b, label);
-    shapeGrid.appendChild(entry);
-  }
 
   function importShapeLibraryFile(file){
     const request = ++shapeLibraryImportSeq;
