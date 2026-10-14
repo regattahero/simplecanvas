@@ -1475,6 +1475,19 @@ test('icon dialog filters licenses, imports an icon with its license, and places
   assert.ok(placed[0].group!=null && placed.every(i=>i.group===placed[0].group), 'placed icon is one group');
 }));
 
+test('icon entry points hide while the browser is offline and return when it reconnects', async () => app(async ({run,context}) => {
+  const visible = ()=>run(`JSON.stringify({btn: !document.getElementById('addIconBtn').hidden,
+    tile: [...shapeGrid.querySelectorAll('.shape-name')].some(n=>n.textContent==='Icon…')})`).then(JSON.parse);
+  await run('renderShapeLibrary()');
+  assert.deepEqual(await visible(), {btn:true, tile:true});
+  await context.setOffline(true);
+  await run('new Promise(r=>setTimeout(r,50))');
+  assert.deepEqual(await visible(), {btn:false, tile:false});
+  await context.setOffline(false);
+  await run('new Promise(r=>setTimeout(r,50))');
+  assert.deepEqual(await visible(), {btn:true, tile:true});
+}));
+
 test('icon search offline shows a message instead of failing', async () => app(async ({page,run}) => {
   await page.route('https://api.iconify.design/**', route => route.abort());
   await run('openIconDialog()');

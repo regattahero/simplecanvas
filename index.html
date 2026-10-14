@@ -148,6 +148,7 @@
   .shape-entry-actions button{width:auto;padding:5px;font-size:12px}
   .shape-library-actions button{justify-content:center;border:1px solid var(--line);font-size:12px}
   .shape-library-actions{margin:10px 0}
+  #addIconBtn[hidden]{display:none}
   #shapePickerManage .shape-library-help:last-child{margin-top:10px}
   .shape-picker button:disabled,.menu button:disabled{opacity:.45;cursor:default}
   .library-dialog{width:360px;max-width:calc(100vw - 40px);box-sizing:border-box;border:1px solid var(--line);border-radius:14px;padding:20px;color:var(--ink);box-shadow:0 12px 40px #0002}
@@ -6684,8 +6685,13 @@ self.onmessage = function(e){
     document.getElementById('shapeLibraryStatus').hidden = !managingShapes;
     shapePickerManage.hidden = !managingShapes;
     for(const tpl of entries) addShapeButton(tpl);
-    if(!managingShapes){ addAddSelectionTile(); addAddIconTile(); }
+    // Icon search needs Iconify. navigator.onLine=false reliably means no network at all; true only
+    // means "some network", so a LAN without internet still shows the button and the dialog reports it.
+    document.getElementById('addIconBtn').hidden = !navigator.onLine;
+    if(!managingShapes){ addAddSelectionTile(); if(navigator.onLine) addAddIconTile(); }
   }
+  window.addEventListener('online', renderShapeLibrary);
+  window.addEventListener('offline', renderShapeLibrary);
 
   function addAddIconTile(){
     const entry = document.createElement('div');
