@@ -1843,6 +1843,24 @@ self.onmessage = function(e){
     }
     return segs;
   }
+  // Indices of zero-width "bridge" segments: a straight A->B whose exact reverse B->A is another straight
+  // segment of the same closed polygon. Imported icons fold each hole into its outline that way
+  // (bridgeHole); the fill needs the bridge, a visible stroke must skip it. Derived from the geometry,
+  // so once a bridge point is moved apart (Point Edit) it is an ordinary edge again.
+  function polyBridgeSegments(segs){
+    const straight = s=>!s.arc && !s.a.c1 && !s.b.c2;
+    const keys = new Map(), bridges = new Set();
+    segs.forEach((s, i)=>{ if(straight(s)) keys.set(s.a.x+','+s.a.y+'>'+s.b.x+','+s.b.y, i); });
+    segs.forEach((s, i)=>{
+      if(!straight(s)) return;
+      const j = keys.get(s.b.x+','+s.b.y+'>'+s.a.x+','+s.a.y);
+      // the two halves of a real bridge always have the hole's whole loop between them; directly
+      // consecutive A->B->A is a drawn spike and keeps its stroke
+      const n = segs.length, adjacent = j===(i+1)%n || i===(j+1)%n;
+      if(j!==undefined && j!==i && !adjacent){ bridges.add(i); bridges.add(j); }
+    });
+    return bridges;
+  }
   // The first noncoincident control determines the limiting endpoint tangent. If the local
   // control coincides with the tip, the next derivative uses the other control, then the other
   // anchor. Skip collapsed segments; an entirely collapsed curve has no arrowhead direction.
@@ -1956,20 +1974,32 @@ self.onmessage = function(e){
         const closed = it.closed !== false;
         const pts = it.points, n = pts.length;
         const segs = polyCurveSegments(it);
-        const d = [['M', pts[0].x, pts[0].y]];
-        for(const s of segs){
-          // s.arc: {cx,cy,r,a1,a2} in this app's own angle convention (0 = top/12 o'clock, positive
-          // = clockwise -- same as Clock/Timer's hand math), NOT canvas/SVG's native 0=3-o'clock
-          // convention -- tracePath()/pathD() below each do the -90deg conversion at their own single
-          // call site, so every OTHER piece of angle math in a script stays in the one convention the
-          // rest of this app already uses.
-          if(s.arc) d.push(['A', s.arc.cx, s.arc.cy, s.arc.r, s.arc.a1, s.arc.a2]);
-          else if(s.a.c1 || s.b.c2) d.push(['C', s.c1.x, s.c1.y, s.c2.x, s.c2.y, s.b.x, s.b.y]);
-          else d.push(['L', s.b.x, s.b.y]);
-        }
+        // s.arc: {cx,cy,r,a1,a2} in this app's own angle convention (0 = top/12 o'clock, positive
+        // = clockwise -- same as Clock/Timer's hand math), NOT canvas/SVG's native 0=3-o'clock
+        // convention -- tracePath()/pathD() below each do the -90deg conversion at their own single
+        // call site, so every OTHER piece of angle math in a script stays in the one convention the
+        // rest of this app already uses.
+        const segCmd = s=>s.arc ? ['A', s.arc.cx, s.arc.cy, s.arc.r, s.arc.a1, s.arc.a2]
+          : (s.a.c1 || s.b.c2) ? ['C', s.c1.x, s.c1.y, s.c2.x, s.c2.y, s.b.x, s.b.y]
+          : ['L', s.b.x, s.b.y];
+        const d = [['M', pts[0].x, pts[0].y], ...segs.map(segCmd)];
         if(closed) d.push(['Z']);
         const style = { fill:closed ? fillOf(it) : 'none', stroke:strokeOf(it), width:it.size, cap:'round', join:'round', dash:dashOf(it) };
-        ops.push({ kind:'path', d, style });
+        const bridges = closed && style.stroke!=='none' ? polyBridgeSegments(segs) : new Set();
+        if(!bridges.size) ops.push({ kind:'path', d, style });
+        else{
+          // fill the whole contour, but stroke only the real edges: each run of non-bridge segments is
+          // its own subpath, starting right after a bridge so a run never wraps across the start point
+          ops.push({ kind:'path', d, style:{...style, stroke:'none'} });
+          const first = Math.min(...bridges), sd = [];
+          for(let k=1; k<=segs.length; k++){
+            const i = (first+k) % segs.length;
+            if(bridges.has(i)) continue;
+            if(bridges.has((i-1+segs.length) % segs.length)) sd.push(['M', segs[i].a.x, segs[i].a.y]);
+            sd.push(segCmd(segs[i]));
+          }
+          if(sd.length) ops.push({ kind:'path', d:sd, style:{...style, fill:'none'} });
+        }
         // Both renderers use the actual endpoint tangent, including degenerate controls.
         if(!closed && n>=2){
           if(it.he){

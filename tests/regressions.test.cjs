@@ -1475,6 +1475,34 @@ test('icon dialog filters licenses, imports an icon with its license, and places
   assert.ok(placed[0].group!=null && placed.every(i=>i.group===placed[0].group), 'placed icon is one group');
 }));
 
+test('hole bridges get no stroke, everything else strokes as before', async () => app(async ({run}) => {
+  const r = JSON.parse(await run(`(async ()=>{
+    const it = svgIconToItems('<path fill-rule="evenodd" d="M0 0h24v24H0zM6 6h12v12H6z"/>', {left:0,top:0,width:24,height:24}).items[0];
+    const summary = item=>shapeOps(item).filter(o=>o.kind==='path').map(o=>({stroke:o.style.stroke, fill:o.style.fill,
+      cmds:o.d.map(c=>c[0]).join('')}));
+    const stroked = {...it, strokeOn:true};
+    const moved = clone(stroked); const k = moved.points.findIndex((p,i)=>moved.points.some((q,j)=>j!==i && q.x===p.x && q.y===p.y));
+    moved.points[k] = {...moved.points[k], x:moved.points[k].x+7};
+    const plain = {type:'polygon', points:[{x:0,y:0},{x:100,y:0},{x:50,y:80}], closed:true, color:'#000000', size:4, strokeOn:true, fill:true, fillColor:'#ff0000'};
+    const spike = {...plain, points:[{x:0,y:0},{x:100,y:0},{x:150,y:40},{x:100,y:0},{x:50,y:80}]};
+    const svg = await itemsToSVGMarkup([stroked]);
+    return JSON.stringify({off:summary(it), on:summary(stroked), moved:summary(moved), plain:summary(plain), spike:summary(spike),
+      svgPaths:(svg.match(/<path /g)||[]).length});
+  })()`));
+  assert.equal(r.off.length, 1, 'stroke off: one path, unchanged');
+  assert.equal(r.plain.length, 1, 'an ordinary polygon: one path, unchanged');
+  assert.equal(r.spike.length, 1, 'a drawn spike (A->B directly followed by B->A) keeps its stroke');
+  assert.equal(r.on.length, 2, 'bridged polygon with stroke: fill path + stroke path');
+  assert.equal(r.on[0].stroke, 'none');
+  assert.match(r.on[0].cmds, /Z$/, 'the fill keeps the whole closed contour');
+  assert.equal(r.on[1].fill, 'none');
+  assert.ok(!r.on[1].cmds.includes('Z'), 'the stroke path is open runs');
+  assert.equal((r.on[1].cmds.match(/L/g)||[]).length, 8, 'outline 4 + hole 4 edges stroked, both bridge segments skipped');
+  assert.equal((r.on[1].cmds.match(/M/g)||[]).length, 2, 'two runs: outline and hole');
+  assert.equal(r.moved.length, 1, 'a bridge point moved apart is an ordinary edge again');
+  assert.equal(r.svgPaths, 2, 'SVG export follows the same split');
+}));
+
 test('icon entry points hide while the browser is offline and return when it reconnects', async () => app(async ({run,context}) => {
   const visible = ()=>run(`JSON.stringify({btn: !document.getElementById('addIconBtn').hidden,
     tile: [...shapeGrid.querySelectorAll('.shape-name')].some(n=>n.textContent==='Icon…')})`).then(JSON.parse);
