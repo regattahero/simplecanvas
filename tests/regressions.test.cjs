@@ -1392,7 +1392,16 @@ test('SVG icon conversion: stroke icon, circle, and rejected features', async ()
         return {count:r.items.length, center:r.items.map(i=>winding(i,0,0)), ring:winding(it,-50,-50)}; });
     const duo = svgIconToItems('<path fill="currentColor" d="M0 0h24v24H0z" opacity=".4"/><path fill="currentColor" d="M8 8h8v8H8z"/>', {left:0,top:0,width:24,height:24});
     const thin = svgIconToItems('<path fill="none" stroke="currentColor" stroke-width="1.5" d="M2 2h20"/>', {left:0,top:0,width:24,height:24}).items[0].size;
-    return JSON.stringify({boat, circle, rej, holes, thin, duo:duo.items.map(i=>i.fillColor), color:legibleColor(ui.color)});
+    ui.color = '#00ff00';   // the toolbar color must not leak into imported icons
+    const vb = {left:0,top:0,width:24,height:24};
+    const colors = {
+      current: svgIconToItems('<path fill="currentColor" d="M0 0h24v24H0z"/>', vb).items[0].fillColor,
+      named: svgIconToItems('<path fill="red" d="M0 0h24v24H0z"/>', vb).items[0].fillColor,
+      hex: svgIconToItems('<path fill="#36c" d="M0 0h24v24H0z"/>', vb).items[0].fillColor,
+      absent: svgIconToItems('<path d="M0 0h24v24H0z"/>', vb).items[0].fillColor,
+      outline: (it=>[it.color, it.fillColor])(svgIconToItems('<path fill="none" stroke="currentColor" d="M2 2h20v20H2z"/>', vb).items[0]),
+    };
+    return JSON.stringify({boat, circle, rej, holes, thin, colors, duo:svgIconToItems('<path fill="currentColor" d="M0 0h24v24H0z" opacity=".4"/><path fill="currentColor" d="M8 8h8v8H8z"/>', vb).items.map(i=>i.fillColor), color:ICON_INK});
   })()`));
   assert.equal(r.thin, 8, 'a fractional stroke width (1.5 x 5 = 7.5) is rounded to whole pixels');
   assert.deepEqual(r.holes[0],{count:1, center:[0], ring:r.holes[0].ring});
@@ -1400,6 +1409,8 @@ test('SVG icon conversion: stroke icon, circle, and rejected features', async ()
   assert.deepEqual(r.holes[1].center, [0], 'nonzero opposite-winding hole is left empty');
   assert.equal(r.holes[2].count, 2, 'an island inside a hole becomes its own filled polygon');
   assert.notEqual(r.holes[2].center[1], 0, 'and the island itself is painted');
+  assert.deepEqual(r.colors, {current:r.color, named:'#ff0000', hex:'#3366cc', absent:'#000000', outline:[r.color, r.color]},
+    'icons keep their own colors (currentColor = preview ink), never the toolbar color');
   assert.notEqual(r.duo[0], r.color, 'a translucent layer becomes a tint');
   assert.equal(r.duo[1], r.color, 'an opaque layer keeps the drawing color');
   assert.ok(r.boat.items, r.boat.error);

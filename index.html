@@ -2885,6 +2885,8 @@ self.onmessage = function(e){
     return '#' + [16, 8, 0].map(s=>Math.round(((n>>s)&255)*alpha + 255*(1-alpha)).toString(16).padStart(2,'0')).join('');
   }
   const ICON_TARGET_SIZE = 120;
+  const ICON_INK = '#1f2937';   // what a monochrome icon's currentColor becomes, in previews and on import
+  const iconColorProbe = document.createElement('canvas').getContext('2d');
   // Converts an icon's SVG body (Iconify's `body`, i.e. the content inside <svg>) into native polygon
   // items, grouped if more than one, scaled so the longer viewBox side is ICON_TARGET_SIZE and centered
   // on (0,0) like a Shape Library template. Returns {items} or {error}. Holes are folded into their
@@ -2920,7 +2922,15 @@ self.onmessage = function(e){
       for(let k=2; k+1<n.length; k+=2) s += 'L'+n[k]+' '+n[k+1];
       return close ? s+'Z' : s;
     };
-    const color = legibleColor(ui.color);
+    // The icon keeps the colors its library preview shows, independent of the toolbar's current color:
+    // currentColor -> ICON_INK (what the preview renders it with), explicit colors as written.
+    const paint = v=>{
+      if(v==null || /^currentcolor$/i.test(v)) return ICON_INK;
+      iconColorProbe.fillStyle = '#000000';
+      iconColorProbe.fillStyle = v;   // the browser parses names/rgb()/#rgb; invalid input leaves black
+      const c = iconColorProbe.fillStyle;
+      return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : ICON_INK;
+    };
     const scale = ICON_TARGET_SIZE / Math.max(vb.width, vb.height);
     const list = [];
     try{
@@ -2948,7 +2958,11 @@ self.onmessage = function(e){
         const filled = (st.fill==null ? 'currentColor' : st.fill) !== 'none' && fillAlpha>0.02;   // SVG's default fill is black
         const stroked = st.stroke!=null && st.stroke!=='none' && strokeAlpha>0.02;
         if(!filled && !stroked) continue;
-        const fillColor = tintTowardWhite(color, fillAlpha), strokeColor = tintTowardWhite(color, strokeAlpha);
+        // SVG's default fill (attribute absent) is black; a stroke only exists when set explicitly
+        // (an unfilled outline icon still gets its stroke color as fillColor, for when fill is switched on)
+        const fillBase = st.fill==null ? '#000000' : paint(st.fill), strokeBase = stroked ? paint(st.stroke) : fillBase;
+        const fillColor = tintTowardWhite(filled ? fillBase : strokeBase, filled ? fillAlpha : 1);
+        const strokeColor = tintTowardWhite(strokeBase, stroked ? strokeAlpha : fillAlpha);
         const sw = st['stroke-width']!=null ? parseFloat(st['stroke-width']) : 1;
         // whole pixels, like every width the toolbar can set
         const size = Math.min(60, Math.max(1, Math.round((Number.isFinite(sw) ? sw : 1)*scale)));
@@ -6506,7 +6520,7 @@ self.onmessage = function(e){
   function iconThumbURL(ic){
     const {left, top, width, height} = ic.vb;
     return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="'+
-      [left, top, width, height].join(' ')+'" style="color:#1f2937">'+ic.body+'</svg>');
+      [left, top, width, height].join(' ')+'" style="color:'+ICON_INK+'">'+ic.body+'</svg>');
   }
   function iconLicenseOf(col){
     const lic = col && col.license && typeof col.license==='object' ? col.license : {};
