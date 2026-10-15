@@ -634,6 +634,7 @@ the whole file into the Script field:
 
 - [Drill template](examples/drill-template.js): hole diameter and position controls in physical units.
 - [Race-start timer](examples/race-start-timer.js): a manually set sailing-start dial with signal flags and click controls.
+- [SAP-1 CPU](examples/sap1-cpu.js): a simulator of Ben Eater's 8-bit breadboard computer with editable RAM and Step/Run/Reset controls.
 
 Standalone copies of [Live clock](examples/live-clock.js), [Stopwatch](examples/stopwatch.js), and
 [Ruler](examples/ruler.js) are also available, along with the importable

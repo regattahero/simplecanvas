@@ -3923,3 +3923,44 @@ test('toolbar popovers stay exclusive and retain color-panel, accessibility and 
   await page.keyboard.press('Escape');await onlyOpen(null);
   assert.equal(await page.locator('#menuBtn').evaluate(b=>b===document.activeElement),true);
 }));
+
+test('the SAP-1 CPU example multiplies, steps, edits, stops runaway programs, and fits its text', async () => app(async ({run}) => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'examples', 'sap1-cpu.js'), 'utf8');
+  const r = JSON.parse(await run(`(async()=>{
+    const script = ${JSON.stringify(script)};
+    const call = (fn, args)=>requestSmartCall(script, fn, args);
+    const init = await call('initState', []);
+    const style0 = await call('initStyle', []);
+    let s = init;
+    const steps = [];
+    for(let i=0; i<2; i++){ s = await call('dragEdit', [s, 'step', 0, 0, 560, 360]); steps.push({pc:s.pc, a:s.a}); }
+    const ran = await call('dragEdit', [init, 'run', 0, 0, 560, 360]);
+    let e = await call('dragEdit', [ran, 'cell13', 0, 0, 560, 360]);
+    e = await call('dragEdit', [e, 'argInc', 0, 0, 560, 360]);
+    const edited = {cell:e.program[13], ram:e.ram[13], pc:e.pc, out:e.out, halted:e.halted};
+    const ran2 = await call('dragEdit', [e, 'run', 0, 0, 560, 360]);
+    const loop = {...init, program:[0x60, ...init.program.slice(1)], ram:[0x60, ...init.ram.slice(1)]};
+    const looped = await call('dragEdit', [loop, 'run', 0, 0, 560, 360]);
+    const it = {type:'smart', w:560, h:360, color:'#1f2937', fillColor:'#ffffff', fill:false, strokeOn:true, textColor:'#1f2937',
+      size:1, fontFamily:'sans', fontSize:12, font:fontStr('sans',12), script};
+    const overflow = [];
+    for(const [w,h] of [[560,360],[300,200]]){
+      const kids = await call('children', [ran, smartResolvedStyle(it), w, h, true]);
+      for(const k of kids.filter(k=>k.type==='text')){ ctx.font = k.font; const tw = ctx.measureText(k.text).width;
+        if(tw > k.w - 12 + 0.5) overflow.push(w+'x'+h+' "'+k.text+'" '+tw.toFixed(1)+'>'+(k.w-12).toFixed(1)); }
+    }
+    const hit = await call('hitEdit', [init, 355, 330, 560, 360]);
+    return JSON.stringify({size:JSON.stringify(init).length, steps, ran:{out:ran.out, halted:ran.halted, prod:ran.ram[14], steps:ran.steps},
+      edited, ran2:ran2.out, looped:{halted:looped.halted, msg:looped.msg}, overflow, hit, style0});
+  })()`));
+  assert.ok(r.size < 4000, 'state fits the 4,000-character limit');
+  assert.deepEqual(r.steps, [{pc:1, a:0}, {pc:2, a:3}], 'LDA 14 then ADD 13');
+  assert.equal(r.ran.halted, true);
+  assert.equal(r.ran.out, 15, '3 x 5');
+  assert.equal(r.ran.prod, 15, 'product stored back to RAM[14]');
+  assert.deepEqual(r.edited, {cell:4, ram:4, pc:0, out:0, halted:false}, 'editing a cell changes it and resets the run');
+  assert.equal(r.ran2, 20, '4 x 5 after the edit');
+  assert.deepEqual(r.looped, {halted:false, msg:'stopped: 1000-step limit'}, 'a runaway program stops at the step limit');
+  assert.deepEqual(r.overflow, [], 'every text fits its box');
+  assert.equal(r.hit, 'step', 'the Step button is hit-testable');
+}));
