@@ -1,9 +1,10 @@
 // A JSON state image: every JSON object arriving at json is merged into one stored object (objects merge
 // key by key, anything else replaces; the newest value wins). Connect it to MQTT subscribe's json output,
 // which already places each message under its topic path. The data output is a table with one row per
-// entry: path ("canvas.sensor1.temp"), type (number, string, boolean, null, object, array) and value as
-// text; a spreadsheet reads it with STATE("port","path"). A rising clear empties the state. The stored
-// object must stay within the 4,000-character component state limit.
+// entry: path as a JSON Pointer ("/canvas/sensor1/temp", like JSON Extract; a key's ~ is written ~0 and
+// its / is written ~1), type (number, string, boolean, null, object, array) and value as text; a
+// spreadsheet reads it with STATE("port","/path"). A rising clear empties the state. The stored object
+// must stay within the 4,000-character component state limit.
 ({
   apiVersion:2,
   inputs:{json:{type:'string',default:''},clear:{type:'boolean',default:false}},
@@ -36,7 +37,7 @@
     const rows=[];
     const walk=(obj,prefix)=>{
       for(const [k,v] of Object.entries(obj)){
-        const path=prefix?prefix+'.'+k:k;
+        const path=prefix+'/'+k.replace(/~/g,'~0').replace(/\//g,'~1');
         if(v===null)rows.push([path,'null','']);
         else if(Array.isArray(v))rows.push([path,'array',JSON.stringify(v).slice(0,2000)]);
         else if(typeof v==='object'){rows.push([path,'object','']);walk(v,path);}

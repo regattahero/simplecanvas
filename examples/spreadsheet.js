@@ -225,7 +225,7 @@
   _dataCall(node){
     const a=node.args,f=node.name;
     if(!['DATA','COLUMN','ROWS','STATE'].includes(f)||!a[0]||a[0].k!=='str')return null;
-    // STATE("port","path"[,type]) reads one value of a JSON state table (path/type/value rows)
+    // STATE("port","/path"[,type]) reads one value of a JSON state table (JSON Pointer path/type/value rows)
     if(f==='STATE'){if(a.length<2||a.length>3||a[1].k!=='str')return null;const t=this._typeArg(a[2]);return t===null?null:{port:this._port(a[0].v),key:a[1].v,type:t,state:true};}
     if(f==='ROWS')return a.length===1?{port:this._port(a[0].v)}:null;
     const key=a[f==='DATA'?2:1];
@@ -605,7 +605,7 @@
     ['Text',{CONCAT:['text1','text2'],LEN:['text'],UPPER:['text'],LOWER:['text'],LEFT:['text','count'],RIGHT:['text','count'],
       MID:['text','start','count']}],
     ['Ports',{INPUT:['"name"'],OUTPUT:['value','"Name"']}],
-    ['Datasets',{INTABLE:['"data"','A1:C6','INPUT("startRow")','0'],DATA:['"data"','0','"column"'],COLUMN:['"data"','"column"'],ROWS:['"data"'],STATE:['"live"','"path"']}],
+    ['Datasets',{INTABLE:['"data"','A1:C6','INPUT("startRow")','0'],DATA:['"data"','0','"column"'],COLUMN:['"data"','"column"'],ROWS:['"data"'],STATE:['"live"','"/path"']}],
   ],
   _cellFormat(state,k){const f=(state.formats||{})[k];return this._FORMATS.some(([c])=>c&&c===f)?f:'';},
   _cellAlign(state,k){const a=(state.aligns||{})[k];return ['left','center','right'].includes(a)?a:'';},

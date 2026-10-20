@@ -105,16 +105,20 @@ test('MQTT messages merge into a JSON state that a spreadsheet reads with STATE,
     {...b,type:'smart',uid:'mq',x:40,y:40,w:320,h:150,script:${JSON.stringify(script)},state:{},componentName:'MQTT',bindings:{},inputValues:{broker:'wss://broker.test:9001',topic:'canvas/#',enabled:true}},
     {...b,type:'smart',uid:'js',x:40,y:240,w:300,h:150,script:${JSON.stringify(jsonState)},state:{store:{}},componentName:'State',bindings:{json:{uid:'mq',port:'json'}},inputValues:{clear:false}},
     {...b,type:'smart',uid:'sh',x:420,y:40,w:552,h:168,script:${JSON.stringify(sheet)},componentName:'Sheet',bindings:{live:{uid:'js',port:'data'}},inputValues:{},
-      state:{cols:6,rows:6,cells:{A1:'=STATE("live","canvas.sensor1.temp")',A2:'=STATE("live","canvas.sensor2.temp")',A3:'=STATE("live","canvas.pump.on")',
-        B1:'=OUTPUT(A1+A2,"sum",1)',B2:'=STATE("live","canvas.pump")',B3:'=STATE("live","canvas.nothing")'}}}];
+      state:{cols:6,rows:6,cells:{A1:'=STATE("live","/canvas/sensor1/temp")',A2:'=STATE("live","/canvas/sensor2/temp")',A3:'=STATE("live","/canvas/pump/on")',
+        A4:'=STATE("live","/canvas/v1.2/temp")',A5:'=STATE("live","/canvas/v1/2/temp")',A6:'=STATE("live","/canvas/x/a~1b")',
+        B1:'=OUTPUT(A1+A2,"sum",1)',B2:'=STATE("live","/canvas/pump")',B3:'=STATE("live","/canvas/nothing")'}}}];
     setTool('select');selection=[];render();await ensureEditorComponentGraph();})()`);
   const graph=()=>run(`(async()=>{const g=await ensureEditorComponentGraph();return items.map(it=>{const r=g.get(it);return r.error?{error:r.error}:r.io.outputs;});})()`);
   await page.waitForFunction(()=>window.__mqttSockets?.some(s=>s.readyState===1 && s.sent.includes(0x82)),null,{timeout:5000});
-  await page.evaluate(()=>{window.__mqttPublish('canvas/sensor1','{"temp":21.5}');window.__mqttPublish('canvas/sensor2','{"temp":19}');window.__mqttPublish('canvas/pump','{"on":true}');});
-  for(let i=0;;i++){const [,j,o]=await graph();if(o.sum===40.5 && j.entries===3)break;
+  await page.evaluate(()=>{window.__mqttPublish('canvas/sensor1','{"temp":21.5}');window.__mqttPublish('canvas/sensor2','{"temp":19}');
+    // JSON Pointer paths: a dot stays inside its level, a / in a payload key is written ~1
+    window.__mqttPublish('canvas/v1.2','{"temp":5}');window.__mqttPublish('canvas/v1/2','{"temp":7}');window.__mqttPublish('canvas/x','{"a/b":3}');
+    window.__mqttPublish('canvas/pump','{"on":true}');});
+  for(let i=0;;i++){const [,j,o]=await graph();if(o.sum===40.5 && j.entries===6)break;
     if(i>80)throw new Error('three quick messages all reach the state: '+JSON.stringify(await graph()));await page.waitForTimeout(100);}
   const [mq,js,sh]=await graph();
   assert.equal(mq.json,'{"canvas":{"pump":{"on":true}}}','the topic becomes the JSON path');
-  assert.equal(js.entries,3);assert.equal(sh.sum,40.5);
-  assert.deepEqual(await run(`(async()=>{const it=items[2],io=await resolveSmartComponentIo(it);const s=(await requestSmartCall(it,'children',[it.state,smartResolvedStyle(it),it.w,it.h,false,io])).filter(k=>k.type==='text').map(k=>k.text);return s;})()`).then(t=>['21.5','19','TRUE','#VALUE!','#N/A'].every(v=>t.includes(v))),true,'an object path is #VALUE!, a missing one #N/A');
+  assert.equal(js.entries,6);assert.equal(sh.sum,40.5);
+  assert.deepEqual(await run(`(async()=>{const it=items[2],io=await resolveSmartComponentIo(it);const s=(await requestSmartCall(it,'children',[it.state,smartResolvedStyle(it),it.w,it.h,false,io])).filter(k=>k.type==='text').map(k=>k.text);return s;})()`).then(t=>['21.5','19','TRUE','5','7','3','#VALUE!','#N/A'].every(v=>t.includes(v))),true,'an object path is #VALUE!, a missing one #N/A');
 }));
