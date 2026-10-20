@@ -112,7 +112,7 @@ const sourceFiles={pageSettings:"page-settings.js",jsonEdit:"json-edit.js",jsonE
   shiftRegisterBoolean:'shift-register-boolean.js',shiftRegisterNumber:'shift-register-number.js',
   srLatch:'sr-latch.js',dLatch:'d-latch.js',dFlipFlop:'d-flip-flop.js',registerBoolean:'register-boolean.js',registerNumber:'register-number.js',
   ringCounter:'ring-counter.js',johnsonCounter:'johnson-counter.js',decadeCounter:'decade-counter.js',
-  sevenSegmentDisplay:'seven-segment-display.js',ledMatrix:'led-matrix.js',liveClock:'live-clock.js',stopwatch:'stopwatch.js',timer:'timer.js',spreadsheet:'spreadsheet.js'};
+  sevenSegmentDisplay:'seven-segment-display.js',ledMatrix:'led-matrix.js',liveClock:'live-clock.js',stopwatch:'stopwatch.js',timer:'timer.js',spreadsheet:'spreadsheet.js',mqttSubscribe:'mqtt-subscribe.js',jsonState:'json-state.js'};
 
 test('bundled component sources, defaults, and displayed ports match the shipped examples',async()=>app(async({run})=>{
   const definitions=await run(`Promise.all(BUILTIN_LIBRARY_DEFINITIONS.filter(d=>d.items[0].componentApi===2).map(async d=>{
@@ -470,7 +470,8 @@ test('every API2 catalog component can show its instance name in canvas, SVG, an
       selectorNumber:{a:12,b:24,select:false},selectorBoolean:{a:false,b:true,select:false},
       steppedSelectorNumber:{in0:10,in1:20,in2:30,in3:40,pulse:false,reset:false},
       steppedSelectorBoolean:{in0:false,in1:true,in2:false,in3:true,pulse:false,reset:false},
-      steppedDistributorNumber:{value:12,pulse:false,reset:false},steppedDistributorBoolean:{value:true,pulse:false,reset:false}
+      steppedDistributorNumber:{value:12,pulse:false,reset:false},steppedDistributorBoolean:{value:true,pulse:false,reset:false},
+      jsonState:{json:'{"sample":2}',clear:false}
     };
     items=definitions.map((definition,index)=>({
       ...clone(definition.items[0]),uid:'catalog-name-'+index,x:40+(index%4)*360,y:40+Math.floor(index/4)*200,

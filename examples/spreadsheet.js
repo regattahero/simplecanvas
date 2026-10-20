@@ -224,7 +224,9 @@
   },
   _dataCall(node){
     const a=node.args,f=node.name;
-    if(!['DATA','COLUMN','ROWS'].includes(f)||!a[0]||a[0].k!=='str')return null;
+    if(!['DATA','COLUMN','ROWS','STATE'].includes(f)||!a[0]||a[0].k!=='str')return null;
+    // STATE("port","path"[,type]) reads one value of a JSON state table (path/type/value rows)
+    if(f==='STATE'){if(a.length<2||a.length>3||a[1].k!=='str')return null;const t=this._typeArg(a[2]);return t===null?null:{port:this._port(a[0].v),key:a[1].v,type:t,state:true};}
     if(f==='ROWS')return a.length===1?{port:this._port(a[0].v)}:null;
     const key=a[f==='DATA'?2:1];
     if(!key||key.k!=='str'||(f==='DATA'?(a.length<3||a.length>4):a.length!==2))return null;
@@ -261,7 +263,7 @@
     if(node.k==='ref')result=cell(this._key(node.c,node.r));
     else if(node.k==='range'){
       for(let r=node.r1;r<=node.r2&&!result;r++)for(let c=node.c1;c<=node.c2&&!result;c++)result=cell(this._key(c,r));
-    }else result=node.k==='fn'&&['INPUT','DATA','COLUMN','ROWS'].includes(node.name)||['a','b'].some(k=>node[k]&&this._hasInputs(node[k],ctx))||
+    }else result=node.k==='fn'&&['INPUT','DATA','COLUMN','ROWS','STATE'].includes(node.name)||['a','b'].some(k=>node[k]&&this._hasInputs(node[k],ctx))||
       !!(node.args&&node.args.some(n=>this._hasInputs(n,ctx)));
     ctx.inputNodes.set(node,result);return result;
   },
@@ -304,6 +306,7 @@
           }
           if(f==='INPUT')return a[1]?.k==='range'?'string':this._inputType(node)||'error';
           if(f==='DATA')return this._dataCall(node)?.type||'error';
+          if(f==='STATE'){const c=this._dataCall(node);return c?c.type||'mixed':'error';}
           if(f==='COLUMN')return 'mixed';
           if(f==='OUTPUT')return a[0]?.k==='range'?'string':this._outputType(node,ctx)||'error';
           if(f==='IF'){
@@ -469,6 +472,14 @@
             if(typeof value!==call.type)throw {e:'#VALUE!'};
             return value;
           }
+          if(f==='STATE'){
+            const {call,table}=dataFor(n),at=key=>table.columns.findIndex(c=>c.key===key),p=at('path'),t=at('type'),v=at('value');
+            const row=p<0?null:table.rows.find(r=>r[p]===call.key);if(!row)throw {e:'#N/A'};
+            const type=row[t],text=row[v];if(type==='object'||type==='array')throw {e:'#VALUE!'};if(type==='null')throw {e:'#N/A'};
+            const value=type==='number'?Number(text):type==='boolean'?text==='true':String(text??'');
+            if(call.type&&typeof value!==call.type)throw {e:'#VALUE!'};
+            return value;
+          }
           if(f==='COLUMN')throw {e:'#VALUE!'};
           if(f==='ROWS'){const {table}=dataFor(n);return table.rowCount;}
           if(f==='SUM')return numbers(a).reduce((s,x)=>s+x,0);
@@ -594,7 +605,7 @@
     ['Text',{CONCAT:['text1','text2'],LEN:['text'],UPPER:['text'],LOWER:['text'],LEFT:['text','count'],RIGHT:['text','count'],
       MID:['text','start','count']}],
     ['Ports',{INPUT:['"name"'],OUTPUT:['value','"Name"']}],
-    ['Datasets',{INTABLE:['"data"','A1:C6','INPUT("startRow")','0'],DATA:['"data"','0','"column"'],COLUMN:['"data"','"column"'],ROWS:['"data"']}],
+    ['Datasets',{INTABLE:['"data"','A1:C6','INPUT("startRow")','0'],DATA:['"data"','0','"column"'],COLUMN:['"data"','"column"'],ROWS:['"data"'],STATE:['"live"','"path"']}],
   ],
   _cellFormat(state,k){const f=(state.formats||{})[k];return this._FORMATS.some(([c])=>c&&c===f)?f:'';},
   _cellAlign(state,k){const a=(state.aligns||{})[k];return ['left','center','right'].includes(a)?a:'';},
