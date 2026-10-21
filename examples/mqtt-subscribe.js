@@ -3,8 +3,10 @@
 // message as context.mqtt; this script never touches the network. Outputs: payload and topic of the
 // latest message (text, at most 2,000 characters), received (a 100 ms pulse per message), count and
 // connected, and status (connected or the reason it is not). json places the message under its topic path,
-// e.g. canvas/sensor1 with {"temp":21.5} gives {"canvas":{"sensor1":{"temp":21.5}}}, for a JSON state.
-// Messages are delivered one at a time. enabled false closes the connection.
+// e.g. canvas/sensor1 with {"temp":21.5} gives {"canvas":{"sensor1":{"temp":21.5}}}; a spreadsheet reads
+// it with JSONVALUE(cell,"/canvas/sensor1/temp"). Messages are delivered one at a time, at most one every
+// 250 ms (quicker ones wait in a queue of 200), so each gets its own received pulse: received connected
+// to a Dataset's append logs every message. enabled false closes the connection.
 ({
   apiVersion:2,
   mqtt:true,

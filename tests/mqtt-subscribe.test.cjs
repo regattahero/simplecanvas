@@ -97,28 +97,29 @@ test('MQTT subscribe reports address, https and denied subscriptions without con
   assert.equal(bad,'rejected','mqtt:true needs string inputs broker and topic');
 }));
 
-test('MQTT messages merge into a JSON state that a spreadsheet reads with STATE, without losing quick messages',async()=>app(async({page,run})=>{
-  const jsonState=fs.readFileSync(path.join(__dirname,'..','examples','json-state.js'),'utf8');
-  const sheet=fs.readFileSync(path.join(__dirname,'..','examples','spreadsheet.js'),'utf8');
+test('an MQTT logger: JSONVALUE cells feed OUTPUT into a Dataset that appends one row per message, also for quick messages',async()=>app(async({page,run})=>{
+  const read=name=>fs.readFileSync(path.join(__dirname,'..','examples',name),'utf8');
   const base={color:'#94a3b8',textColor:'#1f2937',fill:true,fillColor:'#ffffff',strokeOn:true,size:1,fontFamily:'sans',fontSize:14,font:'',componentApi:2};
-  await run(`(async()=>{cancelGesture();const b=${JSON.stringify(base)};b.font=fontStr('sans',14);items=[
+  const log={name:'Log',columns:[{key:'topic',name:'Topic',type:'string'},{key:'temp',name:'Temp',type:'number'},{key:'on',name:'On',type:'boolean'},{key:'ab',name:'A/B',type:'number'}],rows:[]};
+  await run(`(async()=>{cancelGesture();const b=${JSON.stringify(base)};b.font=fontStr('sans',14);datasets=normalizeDatasets(${JSON.stringify({log})});items=[
     {...b,type:'smart',uid:'mq',x:40,y:40,w:320,h:150,script:${JSON.stringify(script)},state:{},componentName:'MQTT',bindings:{},inputValues:{broker:'wss://broker.test:9001',topic:'canvas/#',enabled:true}},
-    {...b,type:'smart',uid:'js',x:40,y:240,w:300,h:150,script:${JSON.stringify(jsonState)},state:{store:{}},componentName:'State',bindings:{json:{uid:'mq',port:'json'}},inputValues:{clear:false}},
-    {...b,type:'smart',uid:'sh',x:420,y:40,w:552,h:168,script:${JSON.stringify(sheet)},componentName:'Sheet',bindings:{live:{uid:'js',port:'data'}},inputValues:{},
-      state:{cols:6,rows:6,cells:{A1:'=STATE("live","/canvas/sensor1/temp")',A2:'=STATE("live","/canvas/sensor2/temp")',A3:'=STATE("live","/canvas/pump/on")',
-        A4:'=STATE("live","/canvas/v1.2/temp")',A5:'=STATE("live","/canvas/v1/2/temp")',A6:'=STATE("live","/canvas/x/a~1b")',
-        B1:'=OUTPUT(A1+A2,"sum",1)',B2:'=STATE("live","/canvas/pump")',B3:'=STATE("live","/canvas/nothing")'}}}];
-    setTool('select');selection=[];render();await ensureEditorComponentGraph();})()`);
+    {...b,type:'smart',uid:'sh',x:420,y:40,w:552,h:168,script:${JSON.stringify(read('spreadsheet.js'))},componentName:'Sheet',bindings:{msg:{uid:'mq',port:'json'},topic:{uid:'mq',port:'topic'}},inputValues:{},
+      state:{cols:6,rows:6,cells:{A1:'=OUTPUT(B4:E5,"row")',A2:'=JSONVALUE(A5,"/canvas")',A3:'=JSONVALUE(A5,"/nothing")',A5:'=INPUT("msg",2)',
+        B4:'topic',C4:'temp',D4:'on',E4:'ab',B5:'=INPUT("topic",2)',C5:'=JSONVALUE(A5,"/canvas/sensor1/temp",1,0)',
+        D5:'=JSONVALUE(A5,"/canvas/pump/on",3,FALSE)',E5:'=JSONVALUE(A5,"/canvas/x/a~1b",1,0)'}}},
+    {...b,type:'smart',uid:'log',x:40,y:260,w:300,h:150,script:${JSON.stringify(read('data-source.js'))},state:{updateMode:'Manual',allowReaderImport:false,allowReaderUpdates:false},componentName:'Log',
+      bindings:{source:{uid:'sh',port:'row'},append:{uid:'mq',port:'received'}},inputValues:{data:{datasetId:'log'}}}];
+    setTool('select');selection=[];render();save();await ensureEditorComponentGraph();})()`);
   const graph=()=>run(`(async()=>{const g=await ensureEditorComponentGraph();return items.map(it=>{const r=g.get(it);return r.error?{error:r.error}:r.io.outputs;});})()`);
+  assert.deepEqual((await graph()).filter(o=>o.error),[],'before the first message every JSONVALUE falls back');
   await page.waitForFunction(()=>window.__mqttSockets?.some(s=>s.readyState===1 && s.sent.includes(0x82)),null,{timeout:5000});
-  await page.evaluate(()=>{window.__mqttPublish('canvas/sensor1','{"temp":21.5}');window.__mqttPublish('canvas/sensor2','{"temp":19}');
-    // JSON Pointer paths: a dot stays inside its level, a / in a payload key is written ~1
-    window.__mqttPublish('canvas/v1.2','{"temp":5}');window.__mqttPublish('canvas/v1/2','{"temp":7}');window.__mqttPublish('canvas/x','{"a/b":3}');
-    window.__mqttPublish('canvas/pump','{"on":true}');});
-  for(let i=0;;i++){const [,j,o]=await graph();if(o.sum===40.5 && j.entries===6)break;
-    if(i>80)throw new Error('three quick messages all reach the state: '+JSON.stringify(await graph()));await page.waitForTimeout(100);}
-  const [mq,js,sh]=await graph();
-  assert.equal(mq.json,'{"canvas":{"pump":{"on":true}}}','the topic becomes the JSON path');
-  assert.equal(js.entries,6);assert.equal(sh.sum,40.5);
-  assert.deepEqual(await run(`(async()=>{const it=items[2],io=await resolveSmartComponentIo(it);const s=(await requestSmartCall(it,'children',[it.state,smartResolvedStyle(it),it.w,it.h,false,io])).filter(k=>k.type==='text').map(k=>k.text);return s;})()`).then(t=>['21.5','19','TRUE','5','7','3','#VALUE!','#N/A'].every(v=>t.includes(v))),true,'an object path is #VALUE!, a missing one #N/A');
+  await page.evaluate(()=>{window.__mqttPublish('canvas/sensor1','{"temp":21.5}');window.__mqttPublish('canvas/pump','{"on":true}');
+    window.__mqttPublish('canvas/x','{"a/b":3}');window.__mqttPublish('canvas/sensor1','{"temp":22}');});
+  const expected=[['canvas/sensor1',21.5,false,0],['canvas/pump',0,true,0],['canvas/x',0,false,3],['canvas/sensor1',22,false,0]];
+  for(let i=0;;i++){const rows=await run('datasets.log.rows');if(rows.length>=4)break;
+    if(i>80)throw new Error('four quick messages are logged: '+JSON.stringify({rows,graph:await graph()}));await page.waitForTimeout(100);}
+  await page.waitForTimeout(600);
+  assert.deepEqual(await run('datasets.log.rows'),expected,'one row per message, none lost or repeated');
+  const texts=await run(`(async()=>{const it=items[1],io=await resolveSmartComponentIo(it);return (await requestSmartCall(it,'children',[it.state,smartResolvedStyle(it),it.w,it.h,false,io])).filter(k=>k.type==='text').map(k=>k.text);})()`);
+  assert.ok(texts.includes('#VALUE!') && texts.includes('#N/A'),'an object path is #VALUE!, a missing path without fallback #N/A');
 }));
